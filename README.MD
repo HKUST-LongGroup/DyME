@@ -1,3 +1,3 @@
 # DyME
 
-### Comming Soon!
+### Coming Soon!
