@@ -22,7 +22,7 @@ from trl import GRPOConfig
 
 from config import CONFIG
 from data_utils.commom_util import collate_fn, define_task_data_func
-from DyMETrainer import MyGRPOTrainer
+from DyMETrainer import DyMETrainer
 from reward_utils.checker import RewardCalculator
 
 
@@ -131,7 +131,7 @@ def main():
     training_args = GRPOConfig(**training_config['dyme_args'])
 
     # 7. Initialize the Trainer
-    dyme_trainer = MyGRPOTrainer(
+    dyme_trainer = DyMETrainer(
         model=model,
         reward_class=checker,
         args=training_args,

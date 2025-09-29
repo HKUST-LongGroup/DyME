@@ -72,6 +72,9 @@ import concurrent.futures
 from datasets import Dataset, IterableDataset
 from eval.chart.util import eval_one_chart
 from eval.eval_metric import evaluate_single_sample
+from peft import get_peft_model
+
+from reward_utils.checker import RewardCalculator
 
 
 def more_express(question, answer, check_list, image_path, hints, gpu_id, tasks, num_threads=8):
@@ -88,9 +91,6 @@ def more_express(question, answer, check_list, image_path, hints, gpu_id, tasks,
         sents = list(executor.map(process_item, task_args))
 
     return sents
-
-# if is_peft_available():
-#     from peft import PeftConfig, get_peft_model
 
 if is_liger_kernel_available():
     from liger_kernel.chunked_loss import LigerFusedLinearGRPOLoss
@@ -300,167 +300,34 @@ def nanmax(tensor: torch.Tensor) -> torch.Tensor:
     return torch.max(tensor[~torch.isnan(tensor)])
 
 
-class MyGRPOTrainer(Trainer):
-    """
-    Trainer for the Group Relative Policy Optimization (GRPO) method. This algorithm was initially proposed in the
-    paper [DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models](https://huggingface.co/papers/2402.03300).
-
-    Example:
-
-    ```python
-    from datasets import load_dataset
-    from trl import GRPOTrainer
-
-    dataset = load_dataset("trl-lib/tldr", split="train")
-
-    def reward_func(completions, **kwargs):
-        # Dummy reward function that rewards completions with more unique letters.
-        return [float(len(set(completion))) for completion in completions]
-
-    trainer = GRPOTrainer(
-        model="Qwen/Qwen2-0.5B-Instruct",
-        reward_funcs=reward_func,
-        train_dataset=dataset,
-    )
-
-    trainer.train()
-    ```
-
-    Args:
-        model (`Union[str, PreTrainedModel]`):
-            Model to be trained. Can be either:
-
-            - A string, being the *model id* of a pretrained model hosted inside a model repo on huggingface.co, or
-              a path to a *directory* containing model weights saved using
-              [`~transformers.PreTrainedModel.save_pretrained`], e.g., `'./my_model_directory/'`. The model is
-              loaded using [`~transformers.AutoModelForCausalLM.from_pretrained`] with the keywork arguments
-              in `args.model_init_kwargs`.
-            - A [`~transformers.PreTrainedModel`] object. Only causal language models are supported.
-        reward_funcs (`Union[RewardFunc, list[RewardFunc]]`):
-            Reward functions to be used for computing the rewards. To compute the rewards, we call all the reward
-            functions with the prompts and completions and sum the rewards. Can be either:
-
-            - A single reward function, such as:
-                - A string: The *model ID* of a pretrained model hosted inside a model repo on huggingface.co, or a
-                path to a *directory* containing model weights saved using
-                [`~transformers.PreTrainedModel.save_pretrained`], e.g., `'./my_model_directory/'`. The model is loaded
-                using [`~transformers.AutoModelForSequenceClassification.from_pretrained`] with `num_labels=1` and the
-                keyword arguments in `args.model_init_kwargs`.
-                - A [`~transformers.PreTrainedModel`] object: Only sequence classification models are supported.
-                - A custom reward function: The function is provided with the prompts and the generated completions,
-                  plus any additional columns in the dataset. It should return a list of rewards. Custom reward
-                  functions can also return None when the reward is not applicable to those samples. This is useful for
-                  multi-task training where different reward functions apply to different types of samples. When a
-                  reward function returns None for a sample, that reward function is excluded from the reward
-                  calculation for that sample. For more details, see
-                  [Using a custom reward function](#using-a-custom-reward-function).
-            - A list of reward functions, where each item can independently be any of the above types. Mixing different
-            types within the list (e.g., a string model ID and a custom reward function) is allowed.
-        args ([`GRPOConfig`], *optional*, defaults to `None`):
-            Configuration for this trainer. If `None`, a default configuration is used.
-        train_dataset ([`~datasets.Dataset`] or [`~datasets.IterableDataset`]):
-            Dataset to use for training. It must include a column `"prompt"`. Any additional columns in the dataset is
-            ignored. The format of the samples can be either:
-
-            - [Standard](dataset_formats#standard): Each sample contains plain text.
-            - [Conversational](dataset_formats#conversational): Each sample contains structured messages (e.g., role
-              and content).
-        eval_dataset ([`~datasets.Dataset`], [`~datasets.IterableDataset`] or `dict[str, Union[Dataset, IterableDataset]]`):
-            Dataset to use for evaluation. It must meet the same requirements as `train_dataset`.
-        processing_class ([`~transformers.PreTrainedTokenizerBase`], *optional*, defaults to `None`):
-            Processing class used to process the data. The padding side must be set to "left". If `None`, the
-            processing class is loaded from the model's name with [`~transformers.AutoTokenizer.from_pretrained`]. A
-            padding token, `processing_class.pad_token`, must be set. If the processing class has not set a padding
-            token, `processing_class.eos_token` will be used as the default.
-        reward_processing_classes (`Union[PreTrainedTokenizerBase, list[PreTrainedTokenizerBase]]`, *optional*, defaults to `None`):
-            Processing classes corresponding to the reward functions specified in `reward_funcs`. Can be either:
-
-            - A single processing class: Used when `reward_funcs` contains only one reward function.
-            - A list of processing classes: Must match the order and length of the reward functions in `reward_funcs`.
-            If set to `None`, or if an element of the list corresponding to a [`~transformers.PreTrainedModel`] is
-            `None`, the tokenizer for the model is automatically loaded using [`~transformers.AutoTokenizer.from_pretrained`].
-            For elements in `reward_funcs` that are custom reward functions (not [`~transformers.PreTrainedModel`]),
-            the corresponding entries in `reward_processing_classes` are ignored.
-        callbacks (list of [`~transformers.TrainerCallback`], *optional*, defaults to `None`):
-            List of callbacks to customize the training loop. Will add those to the list of default callbacks
-            detailed in [here](https://huggingface.co/docs/transformers/main_classes/callback).
-
-            If you want to remove one of the default callbacks used, use the [`~transformers.Trainer.remove_callback`]
-            method.
-        optimizers (`tuple[torch.optim.Optimizer, torch.optim.lr_scheduler.LambdaLR]`, *optional*, defaults to `(None, None)`):
-            A tuple containing the optimizer and the scheduler to use. Will default to an instance of [`AdamW`] on your
-            model and a scheduler given by [`get_linear_schedule_with_warmup`] controlled by `args`.
-        peft_config ([`~peft.PeftConfig`], *optional*, defaults to `None`):
-            PEFT configuration used to wrap the model. If `None`, the model is not wrapped.
-    """
-
-    _tag_names = ["trl", "grpo"]
+class DyMETrainer(Trainer):
 
     def __init__(
         self,
-        model: Union[str, PreTrainedModel],
-        reward_funcs: Union[RewardFunc, list[RewardFunc]],
+        model: PreTrainedModel,
+        reward_class: RewardCalculator,
         args: Optional[GRPOConfig] = None,
         train_dataset: Optional[Union[Dataset, IterableDataset]] = None,
         eval_dataset: Optional[Union[Dataset, IterableDataset, dict[str, Union[Dataset, IterableDataset]]]] = None,
         processing_class: Optional[PreTrainedTokenizerBase] = None,
-        reward_processing_classes: Optional[Union[PreTrainedTokenizerBase, list[PreTrainedTokenizerBase]]] = None,
         callbacks: Optional[list[TrainerCallback]] = None,
         optimizers: tuple[Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]] = (None, None),
         peft_config: Optional["PeftConfig"] = None,
-        processing_func: Optional[Callable[[dict], dict]] = None,
+        processing_func = None,
         attn_implementation: str = "flash_attention_2",
-        end_template: str = None,
-        start_template: str = None,
-        prompt_template: str = None,
-        is_sft: bool = False,
+        answer_template: str = None,
         task_name: str = None,
     ):
-        self.end_template = end_template
-        self.start_template = start_template
-        self.is_sft = is_sft
-        # Args
-        if args is None:
-            model_name = model if isinstance(model, str) else model.config._name_or_path
-            model_name = model_name.split("/")[-1]
-            args = GRPOConfig(f"{model_name}-GRPO")
-
+        self.answer_template = answer_template
+        self.task_name = task_name
         # Models
         # Trained model
         model_init_kwargs = args.model_init_kwargs or {}
-        if isinstance(model, str):
-            model_id = model
-            torch_dtype = model_init_kwargs.get("torch_dtype")
-            if isinstance(torch_dtype, torch.dtype) or torch_dtype == "auto" or torch_dtype is None:
-                pass  # torch_dtype is already a torch.dtype or "auto" or None
-            elif isinstance(torch_dtype, str):  # it's a str, but not "auto"
-                torch_dtype = getattr(torch, torch_dtype)
-                model_init_kwargs["torch_dtype"] = torch_dtype
-            else:
-                raise ValueError(
-                    "Invalid `torch_dtype` passed to `GRPOConfig`. Expected either 'auto' or a string representing "
-                    f"a `torch.dtype` (e.g., 'float32'), but got {torch_dtype}."
-                )
-            # Disable caching if gradient checkpointing is enabled (not supported)
-            model_init_kwargs["use_cache"] = (
-                False if args.gradient_checkpointing else model_init_kwargs.get("use_cache")
-            )
-            model = AutoModelForCausalLM.from_pretrained(model, **model_init_kwargs)
-        else:
-            model_id = model.config._name_or_path
-            if args.model_init_kwargs is not None:
-                raise ValueError(
-                    "You passed `model_init_kwargs` to the `GRPOConfig`, but your model is already instantiated. "
-                    "This argument can only be used when the `model` argument is a string."
-                )
 
         if peft_config is not None:
             if not is_peft_available():
                 raise ImportError("PEFT is required to use `peft_config`. Run `pip install peft`.")
             model = get_peft_model(model, peft_config)
-
-        self.ref_model = None
-        self.task_name = task_name
 
         # Enable gradient checkpointing if requested
         if args.gradient_checkpointing:
@@ -469,61 +336,6 @@ class MyGRPOTrainer(Trainer):
         # Processing class
         if processing_class is None:
             processing_class = AutoTokenizer.from_pretrained(model.config._name_or_path, padding_side="left")
-
-        # processing_class.pad_token = processing_class.eos_token
-
-        pad_token_id = processing_class.tokenizer.pad_token_id
-        eos_token_id = processing_class.tokenizer.eos_token_id
-        # Reward functions
-        if not isinstance(reward_funcs, list):
-            reward_funcs = [reward_funcs]
-        self.reward_func_names = []
-        for i, reward_func in enumerate(reward_funcs):
-            if isinstance(reward_func, str):
-                reward_funcs[i] = AutoModelForSequenceClassification.from_pretrained(
-                    reward_func, num_labels=1, **model_init_kwargs
-                )
-            if isinstance(reward_funcs[i], nn.Module):  # Use Module over PretrainedModel for compat w/ compiled models
-                self.reward_func_names.append(reward_funcs[i].config._name_or_path.split("/")[-1])
-            else:
-                self.reward_func_names.append(reward_funcs[i].__name__)
-        self.reward_funcs = reward_funcs
-
-        # Reward weights
-        if args.reward_weights is not None:
-            if len(args.reward_weights) != len(reward_funcs):
-                raise ValueError(
-                    f"Number of reward weights ({len(args.reward_weights)}) must match number of reward "
-                    f"functions ({len(reward_funcs)})"
-                )
-            self.reward_weights = torch.tensor(args.reward_weights, dtype=torch.float32)
-        else:
-            self.reward_weights = torch.ones(len(reward_funcs), dtype=torch.float32)
-
-        # Reward processing class
-        if reward_processing_classes is None:
-            reward_processing_classes = [None] * len(reward_funcs)
-        elif not isinstance(reward_processing_classes, list):
-            reward_processing_classes = [reward_processing_classes]
-        else:
-            if len(reward_processing_classes) != len(reward_funcs):
-                raise ValueError("The number of reward processing classes must match the number of reward functions.")
-
-        for i, (reward_processing_class, reward_func) in enumerate(zip(reward_processing_classes, reward_funcs)):
-            if isinstance(reward_func, PreTrainedModel):
-                if reward_processing_class is None:
-                    reward_processing_class = AutoTokenizer.from_pretrained(reward_func.config._name_or_path)
-                if reward_processing_class.pad_token_id is None:
-                    reward_processing_class.pad_token = reward_processing_class.eos_token
-                # The reward model computes the reward for the latest non-padded token in the input sequence.
-                # So it's important to set the pad token ID to the padding token ID of the processing class.
-                reward_func.config.pad_token_id = reward_processing_class.pad_token_id
-                reward_processing_classes[i] = reward_processing_class
-        self.reward_processing_classes = reward_processing_classes
-
-        # Data collator
-        def data_collator(features):  # No data collation is needed in GRPO
-            return features
 
         # Training arguments
         self.max_prompt_length = args.max_prompt_length
@@ -571,6 +383,8 @@ class MyGRPOTrainer(Trainer):
         # suppress this warning, we set the "estimate_tokens" key in the model's "warnings_issued" dictionary to True.
         # This acts as a flag to indicate that the warning has already been issued.
         model.warnings_issued["estimate_tokens"] = True
+        def data_collator(features):  # No data collation is needed in GRPO
+            return features
 
         super().__init__(
             model=model,
@@ -590,27 +404,6 @@ class MyGRPOTrainer(Trainer):
         # Disable dropout in the models
         if args.disable_dropout:
             disable_dropout_in_model(model)
-            if self.ref_model is not None:
-                disable_dropout_in_model(self.ref_model)
-
-        # Liger loss
-        if self.use_liger_loss:
-            if not is_liger_kernel_available():
-                raise ImportError(
-                    "Liger is required to use `liger_loss` as the GRPO loss. Run `pip install liger-kernel`."
-                )
-            # redirect the model.module forward to the model forward to ensure pre-forward hooks are called
-            self._forward_redirection = _ForwardRedirection()
-
-            self.liger_grpo_loss = LigerFusedLinearGRPOLoss(
-                beta=self.beta,
-                epsilon_low=self.epsilon_low,
-                epsilon_high=self.epsilon_high,
-                temperature=self.temperature,
-                use_ref_model=self.beta != 0.0,
-                loss_type=self.loss_type,
-                max_completion_length=self.max_completion_length,
-            )
 
         # Initialize the metrics
         self._metrics = {"train": defaultdict(list), "eval": defaultdict(list)}
@@ -671,12 +464,6 @@ class MyGRPOTrainer(Trainer):
         # model accepts loss-related kwargs. Since we compute our own loss, this check is irrelevant. We set
         # self.model_accepts_loss_kwargs to False to enable scaling.
         self.model_accepts_loss_kwargs = False
-
-        # Add tags to the model
-        self.model.add_model_tags(self._tag_names)
-
-        self.new_prompt = prompt_template
-        # self.new_prompt = get_good_format(self.accelerator.process_index)
         self.processing_func = processing_func
 
     def evaluate(self,
@@ -857,15 +644,6 @@ class MyGRPOTrainer(Trainer):
         if self._signature_columns is None:
             self._signature_columns = ["prompt"]
 
-    # This method overrides `Trainer.get_train_dataloader` to support our custom batching strategy.
-    # Instead of returning a standard per-step batch, our dataloader loads an *accumulated* batch
-    # (i.e., `per_device_batch_size × gradient_accumulation_steps`). This allows us to generate completions
-    # once per optimization step—rather than once per gradient accumulation step—which is significantly more efficient.
-    # The only change from the original implementation is multiplying the batch size by `gradient_accumulation_steps`.
-    # Thus, `_prepare_inputs` is called with the accumulated batch size, and it handles the splitting internally.
-    # Maintenance note: This method is a copy-paste of the original `Trainer.get_train_dataloader` with only one line
-    # modification.As a result, some parts of the method aren't relevant to GRPO, but we keep them to stay one line
-    # apart from the super method, ensuring easier maintenance in the future.
     def get_train_dataloader(self):
         if self.train_dataset is None:
             raise ValueError("Trainer: training requires a train_dataset.")
@@ -891,35 +669,9 @@ class MyGRPOTrainer(Trainer):
             dataloader_params["worker_init_fn"] = seed_worker
             dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
         dl = self.accelerator.prepare(DataLoader(train_dataset, **dataloader_params))
-        # skipped_loader = itertools.islice(dl, 1280, None)
         return dl
 
     def _get_train_sampler(self) -> Sampler:
-        # Returns a sampler that
-        # 1. ensures each prompt is repeated across multiple processes. This guarantees that identical prompts are
-        #    distributed to different GPUs, allowing rewards to be computed and normalized correctly within each prompt
-        #    group. Using the same seed across processes ensures consistent prompt assignment, preventing discrepancies
-        #    in group formation.
-        # 2. repeats the batch multiple times to allow reusing generations across multiple updates. Refer to
-        #    _prepare_inputs to see how the generations are stored and reused.
-
-        # In the following figure, the values are the prompt indices. The first row shows the first sampled batch, the
-        # second row shows the second sampled batch, and so on.
-        #
-        #                                      |     Accum step 0      |     Accum step 1      |
-        #                                      |   GPU 0   |   GPU 1   |   GPU 0   |   GPU 1   |
-        #
-        #                 global_step   step    <-───>  num_generations=2
-        #                                       <-───────> per_device_train_batch_size=3
-        #  grad_accum    ▲  ▲  0          0     [0   0   1   1   2   2]  3   3   4   4   5   5    <- Generate for the whole accumulated batch; store the completions; use the first slice to compute the loss
-        #     =2         ▼  |  0          1      0   0   1   1   2   2 [ 3   3   4   4   5   5]   <- Take the stored generations and use the second slice to compute the loss
-        #                   |
-        #                   |  1          2     [0   0   1   1   2   2]  3   3   4   4   5   5    <- Take the stored generations and use the first slice to compute the loss
-        #  num_iterations=2 ▼  1          3      0   0   1   1   2   2 [ 3   3   4   4   5   5]   <- Take the stored generations and use the second slice to compute the loss
-        #
-        #                      2          4     [6   6   7   7   8   8]  9   9  10  10  11  11    <- Generate for the whole accumulated batch; store the completions; use the first slice to compute the loss
-        #                      2          5      6   6   7   7   8   8 [ 9   9  10  10  11  11]   <- ...
-        #                                          ...
         effective_batch_size = (
             self.args.per_device_train_batch_size
             * self.accelerator.num_processes
@@ -934,13 +686,6 @@ class MyGRPOTrainer(Trainer):
             seed=self.args.seed,
         )
 
-    # def _get_eval_sampler(self, eval_dataset) -> Sampler:
-    #     # See _get_train_sampler for an explanation of the sampler.
-    #     return RepeatSampler(
-    #         data_source=eval_dataset,
-    #         mini_repeat_count=self.num_generations,
-    #         seed=self.args.seed,
-    #     )
     def _get_eval_sampler(self, eval_dataset):
         # eval_dataset 是一个 map-style Dataset（非 IterableDataset）
         return DistributedSampler(
@@ -1049,6 +794,8 @@ class MyGRPOTrainer(Trainer):
     def _generate_and_score_completions(
         self, inputs: list[dict[str, Union[torch.Tensor, Any]]]
     ) -> dict[str, Union[torch.Tensor, Any]]:
+
+        # TODO
         device = self.accelerator.device
         mode = "train" if self.model.training else "eval"
 
@@ -1098,7 +845,7 @@ class MyGRPOTrainer(Trainer):
         dt_generate_dt = self.processing_func(dt_generate_list)
         # print(self.accelerator.device, "=========================", prompts)
         # dt_answer_dt = self.processing_func(knowledge_with_end_list)
-        prompt_inputs_generate = super(MyGRPOTrainer, self)._prepare_inputs(dt_generate_dt)
+        prompt_inputs_generate = super(DyMETrainer, self)._prepare_inputs(dt_generate_dt)
         del prompt_inputs_generate["labels"]
         prompt_ids = prompt_inputs_generate["input_ids"]
         prompt_mask = prompt_inputs_generate["attention_mask"]
