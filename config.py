@@ -1,38 +1,47 @@
 import os
+import torch
 
 # ====== Model Configuration ======
 MODEL_CONFIG = {
-    "model_name": "llama-2-7b",  # 使用的模型名称（可以是任何 HuggingFace 模型）
-    "pretrained_model_path": "path_to_pretrained_model",  # 预训练模型路径
-    "checkpoint_path": "path_to_checkpoints",  # 模型保存的路径
-    "num_labels": 2,  # 分类任务时的标签数
-    "hidden_size": 4096,  # 模型的隐藏层大小
-    "num_layers": 24,  # Transformer 的层数
-    "attention_heads": 16,  # Attention heads 数量
-    "dropout": 0.1,  # Dropout 比例
-    "max_seq_length": 512,  # 输入序列的最大长度
+    "pretrained_model_path": "llava-hf/llava-onevision-qwen2-0.5b-si-hf",  # 预训练模型路径
+    "use_flash_attention_2": True,
+    "torch_dtype": torch.bfloat16,
 }
 
 # ====== Training Configuration ======
 TRAINING_CONFIG = {
-    "batch_size": 8,  # 每批次训练数据量
-    "learning_rate": 5e-5,  # 学习率
-    "num_epochs": 10,  # 训练周期数
-    "warmup_steps": 1000,  # 学习率预热步骤
-    "weight_decay": 0.01,  # 权重衰减
-    "gradient_accumulation_steps": 2,  # 梯度累积的步数
-    "logging_dir": "./logs",  # 日志保存路径
-    "save_steps": 500,  # 每 500 步保存一次模型
-    "eval_steps": 1000,  # 每 1000 步进行一次评估
-    "fp16": True,  # 是否启用混合精度训练
-    "seed": 42,  # 随机种子
     "task": 'chart',
     "num_gpus": 8,  # 使用的 GPU 数量
     "num_client": 8,  # 并发客户端数量，通常与 GPU 数量相同
+    # RL阶段的参数 (根据原脚本的rl_args)
+    "dyme_args": {
+        "output_dir": os.path.join('output', "test"),
+        "logging_steps": 1,
+        "num_generations": 4,  # RL 阶段可以生成多个响应进行比较
+        "max_completion_length": 512,
+        "per_device_train_batch_size": 1,
+        "gradient_accumulation_steps": 16,
+        "num_train_epochs": 10,
+        "learning_rate": 1e-5,
+        "bf16": True,  # 使用 bf16 而不是 fp16
+        "gradient_checkpointing": False,
+        "ddp_find_unused_parameters": False,
+        "max_grad_norm": 1.0,
+        "save_steps": 100,
+        "weight_decay": 0.01,
+        "warmup_steps": 0,
+        "eval_strategy": "steps",
+        "eval_steps": 100,
+        "beta": 0.0,  # GRPO specific
+        "loss_type": 'grpo',  # GRPO specific
+        "seed": 42,
+    }
+
 }
 
 RL_CONFIG = {
     "answer_flag": "answer:",  # 客户端主机地址
+    "answer_template": "Answer: %s<|im_end|>",
 }
 
 # ====== Client Configuration for Reward Calculation ======
@@ -47,16 +56,9 @@ CLIENT_CONFIG = {
 
 # ====== Dataset Configuration ======
 DATASET_CONFIG = {
-    "train_dataset": "path_to_train_data",  # 训练数据路径
-    "eval_dataset": "path_to_eval_data",  # 验证数据路径
+    "train_dataset": "json_path",  # 训练数据路径
+    "eval_dataset": "HuggingFaceM4/ChartQA",  # 验证数据路径
     "batch_size": 8,  # 每次加载数据的批次大小
-}
-
-# ====== Miscellaneous Settings ======
-MISC_CONFIG = {
-    "log_level": "INFO",  # 日志级别
-    "use_wandb": True,  # 是否使用 Weights & Biases 进行实验记录
-    "wandb_project_name": "mllm-training",  # W&B 项目名称
 }
 
 # ====== Full Configuration ======
@@ -66,7 +68,6 @@ CONFIG = {
     "rl": RL_CONFIG,
     "client": CLIENT_CONFIG,
     "dataset": DATASET_CONFIG,
-    "misc": MISC_CONFIG,
 }
 
 # Save configuration to a file for reference

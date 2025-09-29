@@ -1,6 +1,6 @@
 from PIL import Image as PILImage
 
-from data_utils.chart.data_collector import deal_chart_rl_data
+from data_utils.chart.data_collector import prepare_chart_rl_data
 
 prompt_ic = """
 Based on the provided sentence <C>, extract all the visual elements. Organize them into a structured format that can be directly converted into a Python list. 
@@ -87,7 +87,7 @@ def define_task_data_func(task):
     if 'medical' in task:
         return None
     elif 'chart' in task:
-        return deal_chart_rl_data
+        return prepare_chart_rl_data
     elif 'math' in task:
         return None
     else:
