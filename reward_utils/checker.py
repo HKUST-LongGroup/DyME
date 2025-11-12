@@ -26,8 +26,10 @@ class RewardCalculator:
         self.answer_flag = answer_flag.lower()
         self.count_pattern = re.compile(f'(?i){re.escape(self.answer_flag)}')
         if CLIENT_CONFIG['client_type'] == 'openai':
-            if CLIENT_CONFIG['port'] is not None:
-                CLIENT_CONFIG['api_base'] = CLIENT_CONFIG['api_base'] % str(CLIENT_CONFIG['init_port'] + gpu_id)
+            if CLIENT_CONFIG['init_port'] is not None:
+                num_server = int(CLIENT_CONFIG['num_server'])
+                server_id = gpu_id % num_server
+                CLIENT_CONFIG['api_base'] = CLIENT_CONFIG['api_base'] % str(CLIENT_CONFIG['init_port'] + server_id)
             self.client = OpenAIClient(config=CLIENT_CONFIG)
         else:
             raise ValueError(f"Client type '{CLIENT_CONFIG['client_type']}' not supported.")
@@ -40,6 +42,7 @@ class RewardCalculator:
         try:
             if 'chart' in task:
                 # Assuming eval_one_chart returns a float (e.g., 1.0 for correct, 0.0 for incorrect)
+                reference_answer = reference_answer.lower().replace('answer:', '').strip()
                 reward = eval_one_chart(response, reference_answer, 0, answer_flag=self.answer_flag)
                 return float(reward)
             else:

@@ -9,7 +9,7 @@ PROMPT_TEMPLATE = (
     "please use the format \"Answer: ..\"\n\n"
     "Question:\n\n{question}"
 )
-
+ANSWER_TEMPLATE = "Answer: {answer}"
 
 def prepare_chart_rl_data(json_path: str) -> List[Dict[str, Any]]:
     """
@@ -45,11 +45,11 @@ def prepare_chart_rl_data(json_path: str) -> List[Dict[str, Any]]:
 
             # Clean up the answer text.
             if 'answer' in new_entry:
-                new_entry['answer'] = new_entry['answer'].strip()
+                new_entry['answer'] = ANSWER_TEMPLATE.format(answer=new_entry['answer'].strip())
 
             # Format the prompt using an f-string.
             new_entry['prompt'] = PROMPT_TEMPLATE.format(question=new_entry['question'])
-
+            new_entry['question_wo_prompt'] = new_entry['question']
             # Optionally remove the 'human_or_machine' key from the final output.
             new_entry.pop('human_or_machine', None)
 

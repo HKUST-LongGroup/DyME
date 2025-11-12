@@ -38,7 +38,7 @@ def collate_fn(examples, processor, label_id=None):
       if image.mode != 'RGB':
         image = image.convert('RGB')
       question = example["question"]
-      answer = example["answer"]
+      answer = example.get("answer", None)
       if answer is not None:
           messages = [
               {

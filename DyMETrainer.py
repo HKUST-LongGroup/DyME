@@ -67,51 +67,18 @@ from trl.models import prepare_deepspeed, unwrap_model_for_generation
 from trl.trainer.grpo_config import GRPOConfig
 from trl.trainer.utils import generate_model_card, get_comet_experiment_url, selective_log_softmax
 
-from client_eval import get_other_express
 import concurrent.futures
 from datasets import Dataset, IterableDataset
-from eval.chart.util import eval_one_chart
-from eval.eval_metric import evaluate_single_sample
-from peft import get_peft_model
 
+from reward_utils import checker
 from reward_utils.checker import RewardCalculator
+from reward_utils.compute_rewards import calculate_rewards_in_parallel
 
-
-def more_express(question, answer, check_list, image_path, hints, gpu_id, tasks, num_threads=8):
-    # 包装函数用于参数解包
-    def process_item(args):
-        q, a, c, i, h, t, gpu_id = args
-        return get_other_express(q, a, c, i, h, gpu_id=gpu_id, expert_task=t)
-
-    # 创建参数元组列表
-    task_args = zip(question, answer, check_list, image_path, hints, tasks, [gpu_id]*len(question))
-
-    # 使用线程池并行处理
-    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
-        sents = list(executor.map(process_item, task_args))
-
-    return sents
-
-if is_liger_kernel_available():
-    from liger_kernel.chunked_loss import LigerFusedLinearGRPOLoss
 
 if is_wandb_available():
     import wandb
 
-def split_initial_context_final(text: str):
-    text = text.lower()
-    if ' answer: ' in text:
-        ans = text.split(' answer: ')[-1]
-        context = text.split(' answer: ')[0]
-        ans = ans.strip('.')
-    elif 'answer: ' in text:
-        ans = text.split('answer: ')[-1]
-        context = text.split('answer: ')[0]
-        ans = ans.strip('.')
-    else:
-        context = text
-        ans = ''
-    return "", context, ans
+
 
 # What we call a reward function is a callable that takes a list of prompts and completions and returns a list of
 # rewards. When it's a string, it's a model ID, so it's loaded as a pretrained model.
@@ -305,29 +272,25 @@ class DyMETrainer(Trainer):
     def __init__(
         self,
         model: PreTrainedModel,
-        reward_class: RewardCalculator,
+        checker = None,
         args: Optional[GRPOConfig] = None,
         train_dataset: Optional[Union[Dataset, IterableDataset]] = None,
         eval_dataset: Optional[Union[Dataset, IterableDataset, dict[str, Union[Dataset, IterableDataset]]]] = None,
         processing_class: Optional[PreTrainedTokenizerBase] = None,
         callbacks: Optional[list[TrainerCallback]] = None,
         optimizers: tuple[Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]] = (None, None),
-        peft_config: Optional["PeftConfig"] = None,
         processing_func = None,
-        attn_implementation: str = "flash_attention_2",
         answer_template: str = None,
         task_name: str = None,
+        end_text: str = '<|endoftext|>',
     ):
         self.answer_template = answer_template
         self.task_name = task_name
+        self.reward_weights = torch.nn.Parameter(torch.ones(3), requires_grad=False)
+        self.reward_func_names = ['format', 'thinking', 'accuracy']
         # Models
         # Trained model
         model_init_kwargs = args.model_init_kwargs or {}
-
-        if peft_config is not None:
-            if not is_peft_available():
-                raise ImportError("PEFT is required to use `peft_config`. Run `pip install peft`.")
-            model = get_peft_model(model, peft_config)
 
         # Enable gradient checkpointing if requested
         if args.gradient_checkpointing:
@@ -350,7 +313,8 @@ class DyMETrainer(Trainer):
         self.loss_type = args.loss_type
         self.scale_rewards = args.scale_rewards
         self.mask_truncated_completions = args.mask_truncated_completions
-
+        self.end_text = end_text
+        self.checker = checker
         # Datasets
         self.shuffle_dataset = args.shuffle_dataset
 
@@ -495,11 +459,12 @@ class DyMETrainer(Trainer):
                     # 把 inputs 转到设备上
                     labels = []
                     prepare_input = []
-                    answer_tp_list = []
+                    prompts = []
+
                     for b in batch:
                         if 'chart' in self.task_name:
-                            question = b['query']
-                            prompt = (
+                            query = b['query']
+                            prompt_temp = (
                                     "For the question below, follow the following instructions:\n"
                                     + "-First output your step-by-step reasoning, then provide your answer beginning with “Answer:”.\n"
                                     + "-The answer should contain as few words as possible.\n"
@@ -514,36 +479,14 @@ class DyMETrainer(Trainer):
                                     + "-Try to include the full label from the graph when asked about an entity.\n"
                                     + "Question: "
                             )
-                            question = f"""{question} Think step by step and then answer the question."""
+                            prompt = f"""{query} Think step by step and then answer the question."""
 
                             # question = prompt + question
-                            b['question'] = question
-
-                            # b['answer'] = b['label'][0]
-                            b['answer'] = None
+                            b['prompt'] = prompt
+                            labels.append(b['answer'])
+                            prompts.append(prompt)
+                            b['answer'] = None  # for generation
                             prepare_input.append(b)
-                            labels.append(b['label'][0])
-                        elif 'math' in self.task_name:
-                            question = b['question'].strip()
-                            answer = b['answer']
-                            if question == '':
-                                question = 'Answer the question shown in the image.'
-
-                            b['question'] = question + ' Think step by step and then answer the question.'
-                            b['answer'] = None
-                            prepare_input.append(b)
-                            labels.append(answer)
-                        elif 'medical' in self.task_name:
-                            question = b['question'].strip()
-                            answer = b['answer']
-                            tp = b['answer_type']
-
-                            b['question'] = question + ' Think step by step and then answer the question.'
-                            b['answer'] = None
-                            b['answer_type'] = tp
-                            prepare_input.append(b)
-                            labels.append(answer)
-                            answer_tp_list.append(tp)
 
                     prepare_input = self.processing_func(prepare_input)
 
@@ -563,40 +506,11 @@ class DyMETrainer(Trainer):
                     completion_ids = prompt_completion_ids[:, prompt_length:]
 
                     preds = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
-                    preds_ans = []
-                    for completion in preds:
-                        start, context, end = split_initial_context_final(completion)
-                        if end == '' and len(end.split(' ')) < 5:
-                            end = completion
-                        preds_ans.append(end.lower())
-                    preds = preds_ans
-                    all_preds.extend(preds)
-                    all_labels.extend(labels)
 
-                    if 'chart' in self.task_name:
-                        acc = [eval_one_chart(pred_answer, answer) for pred_answer, answer in zip(preds, labels)]
-                    elif 'math' in self.task_name:
-                        def eval_one_math(p, a):
-                            return p.lower().strip() == a.lower().strip()
-                        acc = [eval_one_math(pred_answer, answer) for pred_answer, answer in zip(preds, labels)]
-                    elif 'medical' in self.task_name:
-                        acc_open = []
-                        acc_closed = []
-                        for i in range(len(preds)):
-                            answer_type = answer_tp_list[i]
-                            ground_truth_answer = labels[i]
-                            pred_answer = preds[i]
-                            if answer_type == 'CLOSED':
-                                score = evaluate_single_sample(ground_truth_answer, pred_answer, answer_type)[
-                                    'yes/no accuracy']
-                                acc_closed.append(score)
-                            else:
-                                score = evaluate_single_sample(ground_truth_answer, pred_answer, answer_type)[
-                                    'recall']
-                                acc_open.append(score)
-                        acc = acc_open
-                        all_acc_ex.extend(acc_closed)
-                    all_acc.extend(acc)
+                    batch_data = {'prompt': prompts, 'answer': labels, 'response': preds}
+
+                    all_rewards, format_rewards, acc_rewards, think_rewards = calculate_rewards_in_parallel(self.checker, batch_data, self.accelerator.process_index, task=self.task_name)
+
                     # all_acc_show = self.accelerator.gather_for_metrics(
                     #     all_acc,
                     #     use_gather_object=True  # 因为它们是 Python list of str
@@ -607,7 +521,7 @@ class DyMETrainer(Trainer):
                     #     print(all_acc_show.mean())
             # 3. 计算指标
         all_acc_show = self.accelerator.gather_for_metrics(
-            all_acc,
+            acc_rewards,
             use_gather_object=True  # 因为它们是 Python list of str
         )
         if 'medical' in self.task_name:
@@ -763,17 +677,6 @@ class DyMETrainer(Trainer):
     def _prepare_inputs(
         self, accumulated_local_batch: dict[str, Union[torch.Tensor, Any]]
     ) -> dict[str, Union[torch.Tensor, Any]]:
-        # Prepares inputs for model training/evaluation by managing completion generation and batch handling.
-        # During training:
-        #   - Receives the accumulated local batch (Per-GPU batch size × Gradient accumulation steps)
-        #     from the modified training dataloader instead of the standard local batch
-        #   - Generates completions once for the entire accumulated batch and splits it into smaller batches
-        #   - Buffers these completions and returns the appropriate slice for the current accumulation step
-        #   - Optimizes by regenerating completions only periodically (every gradient_accumulation_steps * num_iterations)
-        # During evaluation:
-        #   - The input is treated as a standard local batch (no accumulation, no multiple iterations)
-        #   - Completions are generated for each batch without buffering or reuse
-        # Returns a single local batch in both cases.
 
         mode = "train" if self.model.training else "eval"
         if mode == "train":
@@ -799,54 +702,15 @@ class DyMETrainer(Trainer):
         device = self.accelerator.device
         mode = "train" if self.model.training else "eval"
 
-        dt_train_list = []
-        dt_generate_list = []
-        prompts = []
-        question_wo_prompt_list = []
-        images = []
-        end_gt_list = []
-        start_gt_list = []
-        for x in inputs:
-            question = x["prompt"]
-            answer = x["answer"]
-            image = x["image"]
-            question_wo_prompt = x["only_q"]
+        inputs_for_generate = inputs.copy()
 
-            dt_train = {"question": question_wo_prompt, "image": image, "answer": answer}
-            dt_generate = {"question": question, "image": image, "answer": None}
+        # 去除answer key
+        inputs_for_generate = [{k: v for k, v in x.items() if k != 'answer'} for x in inputs_for_generate]
 
-            question_wo_prompt_list.append(question_wo_prompt)
-
-            end_prompt = self.end_template % answer if self.end_template else answer
-            # call
-
-            start_prompt = self.start_template % answer if self.start_template else answer
-
-            # print(knowledge_with_end)
-            dt_train_list.append(dt_train)
-            dt_generate_list.append(dt_generate)
-            # questions.append(dt_generate_q)
-            prompts.append(question)
-            images.append(image)
-            end_gt_list.append(end_prompt)
-            start_gt_list.append(start_prompt)
-        # return {}
-        if self.is_sft:
-            # if self.sft_start >= 0.5:
-            # sft train
-            dt_train_dt = self.processing_func(dt_train_list)
-
-            # 每隔num取一个
-            for k in dt_train_dt:
-                dt_train_dt[k] = dt_train_dt[k][::self.num_generations]
-
-            return dt_train_dt
-
-        dt_generate_dt = self.processing_func(dt_generate_list)
-        # print(self.accelerator.device, "=========================", prompts)
-        # dt_answer_dt = self.processing_func(knowledge_with_end_list)
+        dt_generate_dt = self.processing_func(inputs_for_generate)
         prompt_inputs_generate = super(DyMETrainer, self)._prepare_inputs(dt_generate_dt)
-        del prompt_inputs_generate["labels"]
+        if 'labels' in prompt_inputs_generate:
+            del prompt_inputs_generate["labels"]
         prompt_ids = prompt_inputs_generate["input_ids"]
         prompt_mask = prompt_inputs_generate["attention_mask"]
         pixel_values = prompt_inputs_generate["pixel_values"]
@@ -861,8 +725,7 @@ class DyMETrainer(Trainer):
                 if self.is_fsdp_enabled
                 else nullcontext()
             ):
-                prompt_completion_ids = unwrapped_model.generate(**prompt_inputs_generate, generation_config=self.generation_config
-                    )
+                prompt_completion_ids = unwrapped_model.generate(**prompt_inputs_generate, generation_config=self.generation_config)
 
 
             # Compute prompt length and extract completion ids
@@ -882,73 +745,37 @@ class DyMETrainer(Trainer):
             truncated_completions = ~is_eos.any(dim=1)
             completion_mask = completion_mask * (~truncated_completions).unsqueeze(1).int()
 
-
-        ######################## my ##########################
         completions = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
 
-        rewards_per_func = torch.zeros(
-            len(prompts), len(self.reward_funcs), device=device)
+        batch_size = len(completion_ids)
+        images = [x['image'] for x in inputs]
+        prompts = [x['prompt'] for x in inputs]
+        hints = [x.get('hints', '') for x in inputs]
+        answers = [x['answer'] for x in inputs]
         images_path = [image if isinstance(image, str) else image.filename for image in images]
-        # 区分答案与reason
-        start_list = []
-        context_list = []
-        end_list = []
-        start_ans_list = []
-        end_ans_list = []
 
-        for completion in completions:
-            start, context, end = split_initial_context_final(completion)
-            start_list.append(start)
-            context_list.append(context)
-            end_list.append(end)
-            start_ans = start.lower().split("the initial answer is ")[-1]
-            end_ans = end.lower().split("the final answer is ")[-1]
-            start_ans_list.append(start_ans)
-            end_ans_list.append(end_ans)
+        batch_data = {'prompt': prompts, 'hints': hints,
+                   'image': images_path, 'response': completions, 'answer': answers}
 
-        # start_acc_reward = self.reward_funcs[0]
-        end_acc_reward_func = self.reward_funcs[-1]
-        len_reward_func = self.reward_funcs[1]
-        format_reward_func = self.reward_funcs[0]
-
-        knowledge_list = [x["knowledge"] for x in inputs]
-
-        standard_answers = [x["answer"] for x in inputs]
-        tp_list = [x['tp'] for x in inputs] if 'tp' in inputs[0] else None
-
-        data_dt = {'prompt': question_wo_prompt_list, 'hints': knowledge_list,
-                   'image': images_path, 'standard_answer': standard_answers, 'task': [self.task_name]*len(images_path)}
-        if tp_list is not None:
-            data_dt['tp'] = tp_list
         gpu_id = self.accelerator.device.index
+        all_rewards, format_rewards, acc_rewards, context_rewards = calculate_rewards_in_parallel(self.checker, batch_data,
+                                                                                   gpu_id=gpu_id,
+                                                                                   task=self.task_name)
+        all_rewards = torch.tensor(all_rewards, dtype=torch.float32).to(self.accelerator.device)
+        format_rewards = torch.tensor(format_rewards, dtype=torch.float32).to(self.accelerator.device)
+        context_rewards = torch.tensor(context_rewards, dtype=torch.float32).to(self.accelerator.device)
+        acc_rewards = torch.tensor(acc_rewards, dtype=torch.float32).to(self.accelerator.device)
 
-        data_dt['response'] = end_ans_list
-        end_acc_rewards = torch.tensor(end_acc_reward_func(data_dt, gpu_id), dtype=torch.float32, device=device)
-        data_dt['response'] = completions
-        format_rewards = torch.tensor(format_reward_func(data_dt, gpu_id), dtype=torch.float32, device=device)
-        data_dt['response'] = completions
-        len_rewards = torch.tensor(len_reward_func(data_dt, gpu_id), dtype=torch.float32, device=device)
-
-        # !!!!!!!!!!!!!!
-        # format_rewards[:] = 0
-        # len_rewards[:] = 0
-        # end_acc_rewards[:] = 0
+        rewards_per_func = torch.zeros([len(all_rewards), 3], device=device)
 
         rewards_per_func[:, 0] = format_rewards.clone()
-        rewards_per_func[:, 1] = len_rewards.clone()
-        rewards_per_func[:, -1] = end_acc_rewards.clone()
-        len_rewards[end_acc_rewards == 0] = 0
-        end_acc_rewards = end_acc_rewards * 2
+        rewards_per_func[:, 1] = context_rewards.clone()
+        rewards_per_func[:, -1] = acc_rewards.clone()
 
-        rewards_per_func_real = rewards_per_func.clone()
-        rewards_per_func_real[:, 1] = len_rewards
-        rewards_per_func_real[:, -1] = end_acc_rewards
-
-        rewards_per_func_real = gather(rewards_per_func_real)
         rewards_per_func = gather(rewards_per_func)
 
         # Apply weights to each reward function's output and sum
-        rewards = (rewards_per_func_real * self.reward_weights.to(device).unsqueeze(0)).nansum(dim=1)
+        rewards = (rewards_per_func * self.reward_weights.to(device).unsqueeze(0)).nansum(dim=1)
 
         # Compute grouped-wise rewards
         mean_grouped_rewards = rewards.view(-1, self.num_generations).mean(dim=1)
@@ -968,94 +795,48 @@ class DyMETrainer(Trainer):
         )
         advantages = advantages[process_slice]
         advantages = advantages.reshape(-1, 1)
-        end_acc_rewards = end_acc_rewards.view(-1, self.num_generations)
+        acc_rewards = acc_rewards.view(-1, self.num_generations)
         format_rewards = format_rewards.view(-1, self.num_generations)
 
-        has_format_correct = (end_acc_rewards > 0.5).sum(1)
-        # has_format_correct = ((end_acc_rewards > 0.5) | (format_rewards > 0.5)).sum(1)
-        has_correct = (end_acc_rewards > 0.5).sum(1)
-        # has_correct = ((end_acc_rewards > 0.5) | (format_rewards > 0.5)).sum(1)
+        has_correct = (acc_rewards > 0.5).sum(1)
         format_rewards = format_rewards.view(-1)
 
-        check_list = []
-        for i in range(len(context_list)):
+        sft_check = []
+        for i in range(batch_size):
             batch_id = i // self.num_generations
-            check_list.append((has_format_correct[batch_id] == 0) & (i % self.num_generations == 0))
-        sents = more_express(question_wo_prompt_list, standard_answers, check_list, images_path, knowledge_list,
-                             gpu_id=self.accelerator.device.index, tasks=[self.task_name] * len(images_path))
-        for i in range(len(sents)):
-            sent = sents[i]
-            end = end_gt_list[i]
-            if sent != "" and sent[-1] == ",":
-                end = end[0].lower() + end[1:]
-            end = sent + "\n" + end
-            end_gt_list[i] = end
+            sft_check.append((has_correct[batch_id] == 0) & (i % self.num_generations == 0))
 
-        start_prompt_dt = self.processing_class.tokenizer(start_gt_list, return_tensors="pt", padding=True,
-                                                          padding_side="right")
-        end_prompt_dt = self.processing_class.tokenizer(end_gt_list, return_tensors="pt", padding=True,
+        sft_gt = [hint + answer + self.end_text for hint, answer in zip(hints, answers)]
+
+        sft_dt = self.processing_class.tokenizer(sft_gt, return_tensors="pt", padding=True,
                                                         padding_side="right")
-        new_compeltion_ids = []
-        new_attn_masks = []
-
-        advantage_list = []
-        for i in range(len(context_list)):
-            add_ct = True
-            reward = advantages[i].squeeze()
-            end = end_gt_list[i].strip()
-            # context = context_list[i].strip()
-            # new_completion = context + ' ' + end
-
-            context = ""
-            new_completion = "\n" + end
-
-            start_id = self.processing_class(text=context, return_tensors="pt").input_ids[0]
-            all_dt = self.processing_class(text=new_completion, return_tensors="pt")
-            all_id = all_dt.input_ids[0]
-
-            advantage_tensor = torch.zeros(len(all_id), device=device)
-            format_check = format_rewards[i] > 0.5
-            adv = 1
-            advantage_tensor[:] = adv
-
-            attn_mask = all_dt.attention_mask[0]
-            new_compeltion_ids.append(all_id)
-            advantage_list.append(advantage_tensor)
-            new_attn_masks.append(attn_mask)
-
-        completion_padded_ids = pad_sequence(new_compeltion_ids, batch_first=True,
-                                             padding_value=self.processing_class.tokenizer.pad_token_id).long().to(
-            device)
-        completion_padded_advantages = pad_sequence(advantage_list, batch_first=True, padding_value=0).to(device)
-        completion_padded_attn_masks = pad_sequence(new_attn_masks, batch_first=True, padding_value=0).to(device)
+        sft_padded_ids = sft_dt['input_ids'].to(device)
+        sft_attn_masks = sft_dt['attention_mask'].to(device)
+        sft_advantages = torch.ones_like(sft_attn_masks, device=device)
 
         final_completion_id_list = []
         final_completion_mask_list = []
         final_advantange_list = []
 
-        for i in range(len(completion_padded_ids)):
+        for i in range(len(sft_padded_ids)):
             batch_id = i // self.num_generations
-            if has_format_correct[batch_id] == 0:
-                fake = torch.zeros(self.num_generations)
-                fake[0] = 1
-                fake = (fake - fake.mean()) / (fake.std() + 1e-4)
-                # if random.random() < 0.5:
-                if check_list[i]:  # 第一个修改为正确答案，其他的保留为错误的。
-                    completion_id_ = torch.cat([completion_padded_ids[i], completion_ids[i][0:0]])
-                    completion_mask_ = torch.cat([completion_padded_attn_masks[i], completion_mask[i][0:0]])
-                    advantange_ = torch.cat([completion_padded_advantages[i], advantages[i][0:0]])
-                    advantange_[:] = fake[0]
+            if has_correct[batch_id] == 0:
+                if sft_check[i]:  # 第一个修改为正确答案，其他的保留为错误的。
+                    completion_id_ = torch.cat([sft_padded_ids[i], completion_ids[i][0:0]])
+                    completion_mask_ = torch.cat([sft_attn_masks[i], completion_mask[i][0:0]])
+                    advantange_ = torch.cat([sft_advantages[i], advantages[i][0:0]])
+                    advantange_[:] = 1
                 else:
-                    completion_id_ = torch.cat([completion_ids[i], completion_padded_advantages[i][0:0]])
-                    completion_mask_ = torch.cat([completion_mask[i], completion_padded_attn_masks[i][0:0]])
-                    advantange_ = torch.cat([advantages[i], completion_padded_advantages[i][0:0]])
+                    completion_id_ = torch.cat([completion_ids[i], completion_ids[i][0:0]])
+                    completion_mask_ = torch.cat([completion_mask[i], sft_attn_masks[i][0:0]])
+                    advantange_ = torch.cat([advantages[i], sft_advantages[i][0:0]])
                     advantange_ = advantange_.repeat_interleave(len(completion_id_))
-                    advantange_[:] = fake[1] * 0
+                    advantange_[:] = 0
 
             else:
-                completion_id_ = torch.cat([completion_ids[i], completion_padded_advantages[i][0:0]])
-                completion_mask_ = torch.cat([completion_mask[i], completion_padded_attn_masks[i][0:0]])
-                advantange_ = torch.cat([advantages[i], completion_padded_advantages[i][0:0]])
+                completion_id_ = torch.cat([completion_ids[i], sft_advantages[i][0:0]])
+                completion_mask_ = torch.cat([completion_mask[i], sft_attn_masks[i][0:0]])
+                advantange_ = torch.cat([advantages[i], sft_padded_ids[i][0:0]])
                 # 如果advantange_是一个数字的话需要扩展维度
                 advantange_ = advantange_.repeat_interleave(len(completion_id_))
 
@@ -1077,7 +858,7 @@ class DyMETrainer(Trainer):
         attention_completion_mask = torch.cat([prompt_mask, completion_mask], dim=1)
 
         for s, a in enumerate(completion_advantange):
-            if end_acc_rewards.view(-1)[s] > 0 and format_rewards.view(-1)[s] > 0 and a[0] < 0:
+            if acc_rewards.view(-1)[s] > 0 and format_rewards.view(-1)[s] > 0 and a[0] < 0:
                 print('no')
 
         if self.accelerator.device.index == 0:
@@ -1087,19 +868,12 @@ class DyMETrainer(Trainer):
 
             show = self.processing_class.decode(completion_id_pos, skip_special_tokens=False)
             show_neg = self.processing_class.decode(completion_id_neg, skip_special_tokens=False)
-
-            print(has_correct, completions[0], "\n=====POS====================\n", show,
-                  "\n======NEG===================\n", show_neg)
-
-            completion_id = completion_ids[1]
-            completion_id_pos = completion_id[(completion_advantange[1] > 0) & (completion_mask[1] > 0)]
-            completion_id_neg = completion_id[(completion_advantange[1] < 0) & (completion_mask[1] > 0)]
-
-            show = self.processing_class.decode(completion_id_pos, skip_special_tokens=False)
-            show_neg = self.processing_class.decode(completion_id_neg, skip_special_tokens=False)
-
-            print(has_correct, completions[1], "\n=====POS====================\n", show,
-                  "\n======NEG===================\n", show_neg)
+            print("\n=====has_correct====================\n", has_correct,)
+            print("\n=====prediction====================\n", completions[0],)
+            if show != "":
+                print("\n=====POS GT====================\n", show)
+            if show_neg != "":
+                print("\n======NEG GT===================\n", show_neg)
 
         # Concatenate prompt_mask with completion_mask for logit computation
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)  # (B, P+C)

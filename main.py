@@ -11,13 +11,14 @@ This script handles:
 """
 
 import os
+from functools import partial
 from typing import Dict, Any
 
 import torch
 import wandb
 from accelerate import Accelerator
 from datasets import Dataset, load_dataset
-from transformers import AutoProcessor, LlavaOnevisionForConditionalGeneration, PreTrainedProcessor
+from transformers import AutoProcessor, LlavaOnevisionForConditionalGeneration
 from trl import GRPOConfig
 
 from config import CONFIG
@@ -43,8 +44,7 @@ def setup_accelerator_and_wandb(bf16) -> Accelerator:
     return accelerator
 
 
-def load_model_and_processor(model_config: Dict[str, Any]) -> (LlavaOnevisionForConditionalGeneration,
-                                                               PreTrainedProcessor):
+def load_model_and_processor(model_config: Dict[str, Any]):
     """
     Loads the pre-trained vision-language model and its associated processor.
 
@@ -59,12 +59,12 @@ def load_model_and_processor(model_config: Dict[str, Any]) -> (LlavaOnevisionFor
     model = LlavaOnevisionForConditionalGeneration.from_pretrained(
         model_id,
         torch_dtype=getattr(torch, model_config['torch_dtype']),
-        use_flash_attention_2=model_config['use_flash_attention_2'],
+        attn_implementation='flash_attention_2' if model_config['use_flash_attention_2'] else 'sdpa',
         low_cpu_mem_usage=True,
     )
 
     # Freeze the vision tower to save memory and computation
-    model.base_model.vision_tower.requires_grad_(False)
+    # model.base_model.vision_tower.requires_grad_(False)
 
     processor = AutoProcessor.from_pretrained(model_id)
     processor.tokenizer.padding_side = "left"
@@ -130,16 +130,16 @@ def main():
     # 6. Define Training Arguments
     training_args = GRPOConfig(**training_config['dyme_args'])
 
+    collate_fn_with_processor = partial(collate_fn, processor=processor)
     # 7. Initialize the Trainer
     dyme_trainer = DyMETrainer(
         model=model,
-        reward_class=checker,
+        checker=checker,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         processing_class=processor,
-        attn_implementation='flash_attention_2' if model_config['use_flash_attention_2'] else 'sdpa',
-        processing_func=collate_fn,
+        processing_func=collate_fn_with_processor,
         answer_template=rl_config['answer_template'],
         task_name=task,
     )

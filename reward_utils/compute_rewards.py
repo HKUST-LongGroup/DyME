@@ -1,14 +1,25 @@
 import concurrent.futures
 from typing import List, Dict, Any
-from  checker import RewardCalculator
+from .checker import RewardCalculator
+
+def split_initial_context(text: str):
+    text = text.lower()
+    flag = 'answer:'
+    if flag in text:
+        ans = text.split(flag)[-1].strip()
+        context = text.split(flag)[0].strip()
+        ans = ans.strip('.')
+    else:
+        context = text
+        ans = ''
+    return context, ans
 
 def calculate_rewards_in_parallel(
     checker: RewardCalculator,
     batch_data: Dict[str, Any],
     gpu_id: int,
     num_threads: int = 8,
-    task='chart'
-) -> List[float]:
+    task='chart'):
     """
     Calculates accuracy rewards for a batch of data in parallel using a thread pool.
 
@@ -23,7 +34,12 @@ def calculate_rewards_in_parallel(
     """
     # Extract lists of data from the input dictionary
     responses = batch_data['response']
-    questions = batch_data['prompt']
+    predictions = []
+    for r in responses:
+        c, p = split_initial_context(r)
+        predictions.append(p)
+    prompts = batch_data['prompt']
+    # questions = batch_data['question']
     answers = batch_data['answer']
     hints = batch_data['hint'] if 'hint' in batch_data else [""] * len(responses)
     num_samples = len(responses)
@@ -35,16 +51,16 @@ def calculate_rewards_in_parallel(
     # Prepare the arguments for each task by zipping the data together.
     # This creates an iterator of tuples, where each tuple contains all args for one call.
     task_answer_args = zip(
-        responses,
+        predictions,
         answers,
         [task] * num_samples,
-        [gpu_id] * num_samples,
-        answer_types,
-        hints
+        # [gpu_id] * num_samples,
+        # answer_types,
+        # hints
     )
     task_thinking_args = zip(
         responses,
-        questions,
+        prompts,
         answers,
         hints,
         [task] * num_samples
@@ -64,4 +80,4 @@ def calculate_rewards_in_parallel(
 
         rewards = [0 if f == 0 else f + a + t for f, a, t in zip(format_rewards, answer_rewards, thinking_rewards)]
 
-    return rewards
+    return rewards, format_rewards, answer_rewards, thinking_rewards

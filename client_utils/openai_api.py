@@ -25,10 +25,10 @@ class OpenAIClient:
         # This improves encapsulation by making the class self-contained.
         # It takes the configuration object as a direct argument.
         self.client = OpenAI(
-            api_key=config.api_key,  # Required: your API key
-            base_url=config.base_url,  # Optional: only needed for third-party services
+            api_key=config['api_key'],  # Required: your API key
+            base_url=config['api_base'],  # Optional: only needed for third-party services
         )
-        self.model_id = config.model_id
+        self.model_id = config['model_id']
         self.max_retries = max_retries
 
     def get_completion(
@@ -90,9 +90,12 @@ if __name__ == '__main__':
     # 1. Define your configuration
     # Replace with your actual credentials and model
     client_config = ClientConfig(
-        api_key="YOUR_API_KEY",
-        base_url="https://api.openai.com/v1",  # Or your custom endpoint
-        model_id="gpt-3.5-turbo"
+        # 对于本地服务，API Key 的内容不重要，但参数通常需要存在
+        api_key="EMPTY",
+        # 修正了IP、端口和路径的顺序
+        base_url="http://127.0.0.1:23333/v1",
+        # 确保这个ID与服务端 lmdeploy 启动的模型ID完全一致
+        model_id="Qwen/Qwen2.5-14B-Instruct-AWQ"
     )
 
     # 2. Instantiate the client
