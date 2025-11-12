@@ -25,6 +25,7 @@ from config import CONFIG
 from data_utils.commom_util import collate_fn, define_task_data_func
 from DyMETrainer import DyMETrainer
 from reward_utils.checker import RewardCalculator
+from reward_utils.refiner import ContextRefiner
 
 
 def setup_accelerator_and_wandb(bf16) -> Accelerator:
@@ -125,8 +126,8 @@ def main():
     train_dataset, eval_dataset = prepare_datasets(task, dataset_config)
 
     # 5. Initialize Reward Calculator
-    checker = RewardCalculator(rl_config, client_config, gpu_id=device_id)
-
+    checker = RewardCalculator(rl_config, client_config.copy(), gpu_id=device_id)
+    refiner = ContextRefiner(rl_config, client_config.copy(), gpu_id=device_id)
     # 6. Define Training Arguments
     training_args = GRPOConfig(**training_config['dyme_args'])
 
@@ -135,13 +136,14 @@ def main():
     dyme_trainer = DyMETrainer(
         model=model,
         checker=checker,
+        refiner=refiner,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         processing_class=processor,
         processing_func=collate_fn_with_processor,
-        answer_template=rl_config['answer_template'],
         task_name=task,
+        end_flag=rl_config['end_flag'],
     )
 
     # 8. Start Training

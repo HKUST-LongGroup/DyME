@@ -35,3 +35,44 @@ According to the requirements and examples above, score the input into three cat
 <R>: %s
 <Output>: 
 """
+
+
+prompt_refine = """Given:
+<IC>: the data of an image
+<Q>: a question
+<A>: a reference answer
+<T>: a writing template
+
+Goal:
+Transform the visual information in <IC> into a textualized data description and incorporate it into a smooth, natural explanation that reasons why the correct answer to <Q> is <A>, using the format and tone defined by <T>.
+
+Example:
+<IC>: [
+    {"Year": 2011, "Favorable": 0, "Unfavorable": 3.1},
+    {"Year": 2012, "Favorable": 56, "Unfavorable": 38.0},
+    {"Year": 2013, "Favorable": 0, "Unfavorable": 0.0},
+    {"Year": 2014, "Favorable": 51, "Unfavorable": 48.0},
+    {"Year": 2015, "Favorable": 0, "Unfavorable": 53.0}
+]
+<Q>: In which year the value was 51?
+<A>: 2014
+<T>:
+Goal: [State the user's objective, e.g., Find the year with the highest sales]
+Observation: [List key data points from the chart, e.g., 2020: 150, 2021: 200, 2022: 180]
+Reasoning: [State the logical step, e.g., Compare the values. 200 is the maximum.]
+Conclusion: [Draw the conclusion, e.g., The year with the highest sales was 2021.]
+
+<Output>:
+Goal: Find the year in which the 'Favorable' value was 51.
+Observation: The data shows the 'Favorable' values for each year are: 2011: 0, 2012: 56, 2013: 0, 2014: 51, and 2015: 0.
+Reasoning: Scanning the 'Favorable' column for the number 51 leads to the corresponding year in that row.
+Conclusion: The value 51 occurred in the year 2014.
+
+Now, according to the requirements and the examples above, convert my input into the target reasoning text. Please give me the result directly without any explanation or description.
+
+<IC>: %s
+<Q>: %s
+<A>: %s
+<T>: %s
+<Output>:
+"""

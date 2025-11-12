@@ -8,11 +8,20 @@ Based on the provided sentence <C>, extract all the visual elements. Organize th
 Note: visual elements are all the things that can be seen in a sentence - tangible, perceivable items, places, people, colors, shapes, movements, etc.
 
 Here are some examples:
-C: A small black cat is sitting on a wooden table under the bright sunlight.
+<C>: A small black cat is sitting on a wooden table under the bright sunlight.
 Output: [
     {"object": "cat", "attributes": ["small", "black"], "action": "sitting"},
     {"object": "table", "attributes": ["wooden"]},
     {"environment": "sunlight", "attributes": ["bright"]}
+]
+
+<C>: "Year | Favorable | Unfavorable \n 2011 | 0 | 3.1 \n 2012 | 56 | 38.0 \n 2013 | 0 | 0.0 \n 2014 | 51 | 48.0 \n 2015 | 0 | 53.0"
+Output: [
+    {"Year": 2011, "Favorable": 0, "Unfavorable": 3.1},
+    {"Year": 2012, "Favorable": 56, "Unfavorable": 38.0},
+    {"Year": 2013, "Favorable": 0, "Unfavorable": 0.0},
+    {"Year": 2014, "Favorable": 51, "Unfavorable": 48.0},
+    {"Year": 2015, "Favorable": 0, "Unfavorable": 53.0}
 ]
 
 <C>: The old castle stands on a rocky hill surrounded by mist.

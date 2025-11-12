@@ -1,6 +1,7 @@
 import os
 import json
 from typing import List, Dict, Any
+from config import CONFIG
 
 # Define the prompt template as a constant for clarity and easy modification.
 PROMPT_TEMPLATE = (
@@ -9,7 +10,7 @@ PROMPT_TEMPLATE = (
     "please use the format \"Answer: ..\"\n\n"
     "Question:\n\n{question}"
 )
-ANSWER_TEMPLATE = "Answer: {answer}"
+ANSWER_TEMPLATE = CONFIG['rl']['answer_flag'] + " " +  "{answer}"
 
 def prepare_chart_rl_data(json_path: str) -> List[Dict[str, Any]]:
     """

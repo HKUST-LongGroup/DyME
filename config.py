@@ -31,7 +31,7 @@ TRAINING_CONFIG = {
         "weight_decay": 0.01,
         "warmup_steps": 0,
         "eval_strategy": "steps",
-        "eval_steps": 100,
+        "eval_steps": 10000,
         "beta": 0.0,  # GRPO specific
         "loss_type": 'grpo',  # GRPO specific
         "seed": 42,
@@ -40,8 +40,8 @@ TRAINING_CONFIG = {
 }
 
 RL_CONFIG = {
-    "answer_flag": "answer:",
-    "answer_template": "Answer: %s<|im_end|>",
+    "answer_flag": "Answer:",
+    "end_flag": "<|im_end|>"
 }
 
 # ====== Client Configuration for Reward Calculation ======
@@ -57,7 +57,7 @@ CLIENT_CONFIG = {
 
 # ====== Dataset Configuration ======
 DATASET_CONFIG = {
-    "train_dataset": "/chartqa_output/json/train.json",  # 训练数据路径
+    "train_dataset": "/chartqa_output/json/train_new.json",  # 训练数据路径
     "eval_dataset": "HuggingFaceM4/ChartQA",  # 验证数据路径
 }
 

@@ -72,8 +72,7 @@ from datasets import Dataset, IterableDataset
 
 from reward_utils import checker
 from reward_utils.checker import RewardCalculator
-from reward_utils.compute_rewards import calculate_rewards_in_parallel
-
+from reward_utils.compute_rewards import calculate_rewards_in_parallel, refine_context_in_parallel
 
 if is_wandb_available():
     import wandb
@@ -273,6 +272,7 @@ class DyMETrainer(Trainer):
         self,
         model: PreTrainedModel,
         checker = None,
+        refiner=None,
         args: Optional[GRPOConfig] = None,
         train_dataset: Optional[Union[Dataset, IterableDataset]] = None,
         eval_dataset: Optional[Union[Dataset, IterableDataset, dict[str, Union[Dataset, IterableDataset]]]] = None,
@@ -280,11 +280,9 @@ class DyMETrainer(Trainer):
         callbacks: Optional[list[TrainerCallback]] = None,
         optimizers: tuple[Optional[torch.optim.Optimizer], Optional[torch.optim.lr_scheduler.LambdaLR]] = (None, None),
         processing_func = None,
-        answer_template: str = None,
         task_name: str = None,
-        end_text: str = '<|endoftext|>',
+        end_flag: str = '<|im_end|>',
     ):
-        self.answer_template = answer_template
         self.task_name = task_name
         self.reward_weights = torch.nn.Parameter(torch.ones(3), requires_grad=False)
         self.reward_func_names = ['format', 'thinking', 'accuracy']
@@ -313,8 +311,9 @@ class DyMETrainer(Trainer):
         self.loss_type = args.loss_type
         self.scale_rewards = args.scale_rewards
         self.mask_truncated_completions = args.mask_truncated_completions
-        self.end_text = end_text
+        self.end_flag = end_flag
         self.checker = checker
+        self.refiner = refiner
         # Datasets
         self.shuffle_dataset = args.shuffle_dataset
 
@@ -750,10 +749,10 @@ class DyMETrainer(Trainer):
         batch_size = len(completion_ids)
         images = [x['image'] for x in inputs]
         prompts = [x['prompt'] for x in inputs]
-        hints = [x.get('hints', '') for x in inputs]
+        question_wo_prompts = [x['question_wo_prompt'] for x in inputs]
+        hints = [x.get('hint', '') for x in inputs]
         answers = [x['answer'] for x in inputs]
         images_path = [image if isinstance(image, str) else image.filename for image in images]
-
         batch_data = {'prompt': prompts, 'hints': hints,
                    'image': images_path, 'response': completions, 'answer': answers}
 
@@ -806,7 +805,9 @@ class DyMETrainer(Trainer):
             batch_id = i // self.num_generations
             sft_check.append((has_correct[batch_id] == 0) & (i % self.num_generations == 0))
 
-        sft_gt = [hint + answer + self.end_text for hint, answer in zip(hints, answers)]
+        hints = refine_context_in_parallel(self.refiner, question_wo_prompts, hints, answers, task=self.task_name, gpu_id=gpu_id)
+
+        sft_gt = [hint + '\n' + answer + self.end_flag for hint, answer in zip(hints, answers)]
 
         sft_dt = self.processing_class.tokenizer(sft_gt, return_tensors="pt", padding=True,
                                                         padding_side="right")
@@ -834,9 +835,9 @@ class DyMETrainer(Trainer):
                     advantange_[:] = 0
 
             else:
-                completion_id_ = torch.cat([completion_ids[i], sft_advantages[i][0:0]])
+                completion_id_ = torch.cat([completion_ids[i], sft_padded_ids[i][0:0]])
                 completion_mask_ = torch.cat([completion_mask[i], sft_attn_masks[i][0:0]])
-                advantange_ = torch.cat([advantages[i], sft_padded_ids[i][0:0]])
+                advantange_ = torch.cat([advantages[i], sft_advantages[i][0:0]])
                 # 如果advantange_是一个数字的话需要扩展维度
                 advantange_ = advantange_.repeat_interleave(len(completion_id_))
 

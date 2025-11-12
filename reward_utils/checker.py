@@ -52,7 +52,7 @@ class RewardCalculator:
             print(f"An error occurred during answer reward calculation: {e}")
             return 0.0
 
-    def get_format_reward(self, response: str, min_thinking_length: int = 10) -> float:
+    def get_format_reward(self, response: str, min_thinking_length: int = 0) -> float:
         """
         Calculates the format reward based on two criteria:
         1. The 'answer:' flag must appear exactly once.
@@ -71,8 +71,7 @@ class RewardCalculator:
 
         return 1.0
 
-    def get_thinking_reward_prompt(self, response: str, question: str, answer: str, hint: str, task: str) -> Optional[
-        str]:
+    def get_thinking_reward_prompt(self, response: str, question: str, answer: str, hint: str, task: str):
         """
         Generates a prompt for an LLM to evaluate the quality of the 'thinking' process.
 
@@ -105,7 +104,7 @@ class RewardCalculator:
 
         try:
             thinking = response.lower().split(self.answer_flag)[0].strip()
-            in_context_example = prompt_ic % hint
+            in_context_example = self.client.get_completion(prompt_ic % hint, system_prompt=system_prompt, max_tokens=5000)
 
             if 'chart' in task:
                 # Construct the final prompt for the evaluator model.

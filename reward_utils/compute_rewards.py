@@ -41,7 +41,7 @@ def calculate_rewards_in_parallel(
     prompts = batch_data['prompt']
     # questions = batch_data['question']
     answers = batch_data['answer']
-    hints = batch_data['hint'] if 'hint' in batch_data else [""] * len(responses)
+    hints = batch_data['hints'] if 'hints' in batch_data else [""] * len(responses)
     num_samples = len(responses)
 
     # Safely get 'answer_types', providing a list of Nones as a default
@@ -72,12 +72,52 @@ def calculate_rewards_in_parallel(
         # The '*' operator unpacks each tuple from task_args into positional arguments
         # for the get_acc_reward function.
 
-        format_rewards = list(executor.map(lambda args: checker.get_format_reward(args[0]), responses))
+        format_rewards = list(executor.map(checker.get_format_reward, responses))
         answer_rewards = list(executor.map(lambda args: checker.get_answer_reward(*args), task_answer_args))
         thinking_rewards = list(executor.map(
-            lambda args: checker.get_thinking_reward_prompt(*args), task_thinking_args
-        ))
+            lambda args: checker.get_thinking_reward_prompt(*args), task_thinking_args))
 
         rewards = [0 if f == 0 else f + a + t for f, a, t in zip(format_rewards, answer_rewards, thinking_rewards)]
 
     return rewards, format_rewards, answer_rewards, thinking_rewards
+
+def refine_context_in_parallel(
+    refiner,
+    questions: List[str],
+    hints: List[str],
+    reference_answers: List[str],
+    task,
+    gpu_id: int,
+    num_threads: int = 8):
+    """
+    Refines contexts for a batch of data in parallel using a thread pool.
+
+    Args:
+        questions: A list of questions.
+        hints: A list of hints corresponding to each question.
+        reference_answers: A list of reference answers.
+        tasks: A list of task types corresponding to each question.
+        gpu_id: The ID of the GPU to be used for processing.
+        num_threads: The number of parallel threads to use.
+
+    Returns:
+        A list of refined contexts for each question.
+    """
+    num_samples = len(questions)
+    tasks = [task] * num_samples
+    # Prepare the arguments for each task by zipping the data together.
+    task_args = zip(
+        questions,
+        hints,
+        reference_answers,
+        tasks,
+        [gpu_id] * num_samples
+    )
+
+    # Use a ThreadPoolExecutor to process the data in parallel.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+        refined_contexts = list(executor.map(
+            lambda args: refiner.refine_hint(*args), task_args
+        ))
+
+    return refined_contexts
