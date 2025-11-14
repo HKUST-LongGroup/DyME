@@ -1,6 +1,8 @@
+import os.path
+
 from PIL import Image as PILImage
 
-from data_utils.chart.data_collector import prepare_chart_rl_data
+from data_utils.chart.data_collector import prepare_chart_rl_data, prepare_chart_sft_data
 
 prompt_ic = """
 Based on the provided sentence <C>, extract all the visual elements. Organize them into a structured format that can be directly converted into a Python list. 
@@ -37,16 +39,19 @@ Now, following the examples above, please extract the visual element from the se
 Your Output:
 """
 
-def collate_fn(examples, processor, label_id=None):
+def collate_fn(examples, processor, label_id=151646):
+
     texts = []
     images = []
     for example in examples:
       image = example["image"]
       if isinstance(image, str):
+        if not os.path.exists(image):
+            image = image.replace('/chartqa_output/', '/apdcephfs_nj4/share_300377003/realzliu/data/chartqa_output/')
         image = PILImage.open(image)
       if image.mode != 'RGB':
         image = image.convert('RGB')
-      question = example["question"]
+      question = example["prompt"]
       answer = example.get("answer", None)
       if answer is not None:
           messages = [
@@ -81,7 +86,7 @@ def collate_fn(examples, processor, label_id=None):
             texts.append(text.strip())
 
       images.append(image)
-
+    # print(texts)
     batch = processor(text=texts, images=images, return_tensors="pt", padding=True)
 
     if label_id is not None:
@@ -92,11 +97,13 @@ def collate_fn(examples, processor, label_id=None):
 
     return batch
 
-def define_task_data_func(task):
+def define_task_data_func(task, mode='rl'):
     if 'medical' in task:
         return None
     elif 'chart' in task:
-        return prepare_chart_rl_data
+        if mode == 'rl':
+            return prepare_chart_rl_data
+        return prepare_chart_sft_data
     elif 'math' in task:
         return None
     else:

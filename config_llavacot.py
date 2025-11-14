@@ -3,8 +3,8 @@ import torch
 
 # ====== Model Configuration ======
 MODEL_CONFIG = {
-    "pretrained_model_path": "/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart/checkpoint-200",  # two-stage grpo
-    # "pretrained_model_path": "llava-hf/llava-onevision-qwen2-0.5b-ov-hf",  # two-stage grpo
+    # "pretrained_model_path": "/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart/checkpoint-200",  # two-stage grpo
+    "pretrained_model_path": "llava-hf/llava-onevision-qwen2-0.5b-ov-hf",  # two-stage grpo
     "use_flash_attention_2": True,
     "torch_dtype": "bfloat16",
 }
@@ -38,7 +38,7 @@ TRAINING_CONFIG = {
         "seed": 42,
     },
     "sft_args": {
-        "output_dir": '/apdcephfs_nj4/share_300377003/realzliu/sft-chart-llava_cot',
+        "output_dir": '/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart-llava_cot',
         "logging_steps": 1,
         "per_device_train_batch_size": 2,
         "gradient_accumulation_steps": 4,
@@ -48,6 +48,7 @@ TRAINING_CONFIG = {
         "gradient_checkpointing": False,
         "ddp_find_unused_parameters": False,
         "max_grad_norm": 1.0,
+        "max_length": 4096,
         # "save_steps": 100,
         "save_strategy": "epoch",
         "weight_decay": 0.01,
@@ -58,7 +59,7 @@ TRAINING_CONFIG = {
         "remove_unused_columns": False
     },
     "grpo_args":{
-        "output_dir": '/apdcephfs_nj4/share_300377003/realzliu/grpo-chart-llava',
+        "output_dir": '/apdcephfs_nj4/share_300377003/realzliu/grpo-llavaov-chart',
         "logging_steps": 1,
         "num_generations": 4,  # RL 阶段可以生成多个响应进行比较
         "max_completion_length": 576,
@@ -102,7 +103,7 @@ CLIENT_CONFIG = {
 # ====== Dataset Configuration ======
 DATASET_CONFIG = {
     # "train_dataset": "/chartqa_output/json/train_new_prerefine.json",  # 训练数据路径
-    "train_dataset": "/apdcephfs_nj4/share_300377003/realzliu/data/chartqa_output/json/train_new_prerefine.json",
+    "train_dataset": "/apdcephfs_nj4/share_300377003/realzliu/data/chartqa_output/llavacot/json/chartqa_train_processed.json",  # 训练数据路径
     # 训练数据路径
     "eval_dataset": "HuggingFaceM4/ChartQA",  # 验证数据路径
 }

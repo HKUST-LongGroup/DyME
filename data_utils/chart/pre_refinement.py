@@ -100,8 +100,8 @@ def process_item_worker(item):
     new_hint = refiner_instance.refine_hint(
         question=item['question'],
         hint=item['hint'],
-        reference_answer=item['reference_answer'],
-        task=item['task']
+        reference_answer=item['answer'],
+        task='chart'
     )
     item['hint'] = new_hint
     return item
@@ -110,13 +110,7 @@ def process_item_worker(item):
 # ---------------- 主逻辑 ----------------
 def main():
     # 包含了端口和服务器数量信息的配置
-    CLIENT_CONFIG = {
-        'client_type': 'openai',
-        'api_base': 'http://127.0.0.1:%s/v1',  # ! 重要：使用 %s 作为端口占位符
-        'init_port': 23333,  # ! 起始端口
-        'num_server': 8  # ! API服务器的数量
-    }
-
+    from config import CLIENT_CONFIG
     input_filename = '/chartqa_output/json/train_new.json'
     output_filename = '/chartqa_output/json/train_new_prerefine.json'
 

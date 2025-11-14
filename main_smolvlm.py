@@ -18,12 +18,12 @@ import torch
 import wandb
 from accelerate import Accelerator
 from datasets import Dataset, load_dataset
-from transformers import AutoProcessor, LlavaOnevisionForConditionalGeneration
+from transformers import AutoProcessor, Idefics3ForConditionalGeneration
 from trl import GRPOConfig
 
 from config import CONFIG
 from data_utils.commom_util import collate_fn, define_task_data_func
-from DyMETrainer import DyMETrainer
+from DyMETrainer_Smol import DyMETrainer
 from reward_utils.checker import RewardCalculator, RewardCalculatorLocal
 from reward_utils.refiner import ContextRefiner, ContextRefinerLocal
 
@@ -57,7 +57,7 @@ def load_model_and_processor(model_config: Dict[str, Any]):
     """
     model_id = model_config['pretrained_model_path']
 
-    model = LlavaOnevisionForConditionalGeneration.from_pretrained(
+    model = Idefics3ForConditionalGeneration.from_pretrained(
         model_id,
         torch_dtype=getattr(torch, model_config['torch_dtype']),
         attn_implementation='flash_attention_2' if model_config['use_flash_attention_2'] else 'sdpa',
@@ -65,10 +65,13 @@ def load_model_and_processor(model_config: Dict[str, Any]):
     )
 
     # Freeze the vision tower to save memory and computation
-    model.base_model.vision_tower.requires_grad_(False)
+    model.model.vision_model.requires_grad_(False)
 
     processor = AutoProcessor.from_pretrained(model_id)
     processor.tokenizer.padding_side = "left"
+    processor.image_processor.size['longest_edge'] = 512 * 4
+    # image_token_id = processor.tokenizer.additional_special_tokens_ids[
+    #     processor.tokenizer.additional_special_tokens.index("<image>")]
 
     return model, processor
 
@@ -159,5 +162,7 @@ def main():
     if accelerator.is_main_process:
         processor.save_pretrained(output_dir)
         print(f"Model and processor saved to {output_dir}")
+
+
 if __name__ == "__main__":
     main()

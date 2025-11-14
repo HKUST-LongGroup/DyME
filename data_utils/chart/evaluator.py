@@ -228,6 +228,7 @@ def eval_one_chart(
 ) -> float:
     model_answer = model_answer.strip()
     reference_answer = reference_answer.strip()
+    reference_answer = reference_answer.lower().replace(answer_flag, '')
     if answer_flag not in model_answer.lower():
         # If the answer is not in the model answer, we can use the relaxed correctness.
         return relaxed_correctness(model_answer, reference_answer, max_relative_change)

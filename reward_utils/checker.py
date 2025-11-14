@@ -118,3 +118,112 @@ class RewardCalculator:
             print(f"An error occurred during thinking reward prompt generation: {e}")
             return None
 
+
+import spacy
+import string
+import re
+
+
+class RewardCalculatorLocal:
+    def __init__(self, RL_CONFIG, CLIENT_CONFIG, gpu_id=0):
+        # ... 其他初始化代码 ...
+        self.answer_flag = RL_CONFIG["answer_flag"].lower()
+        self.count_pattern = re.compile(f'(?i){re.escape(self.answer_flag)}')
+
+        # 加载 spaCy 的小型英文模型
+        # 我们可以在初始化时加载一次，避免重复加载
+        try:
+            self.nlp = spacy.load("en_core_web_sm")
+        except OSError:
+            print("Downloading spaCy model 'en_core_web_sm'...")
+            from spacy.cli import download
+            download("en_core_web_sm")
+            self.nlp = spacy.load("en_core_web_sm")
+
+        # 定义我们认为“重要”的词性标签
+        # NOUN (名词), PROPN (专有名词), VERB (动词), ADJ (形容词), NUM (数字)
+        # 您可以根据需求调整这个列表
+        self.important_pos_tags = {'NOUN', 'PROPN', 'VERB', 'ADJ', 'NUM'}
+
+    def _preprocess_text_pos(self, text: str) -> set[str]:
+        """
+        使用词性标注来提取关键词
+        """
+        doc = self.nlp(text.lower())
+        keywords = set()
+        for token in doc:
+            # 只保留重要词性的词，并且确保它不是停用词或标点符号
+            if token.pos_ in self.important_pos_tags and not token.is_stop and not token.is_punct:
+                # 使用 .lemma_ 来获取词的原形，例如 'sales' -> 'sale'
+                keywords.add(token.lemma_)
+        return keywords
+
+    def get_thinking_reward_prompt(self, response: str, question: str, answer: str, hint: str, task: str):
+        try:
+            thinking_part = response.lower().split(self.answer_flag)[0].strip()
+            if not thinking_part:
+                return 0.0
+
+            # 使用基于词性的新方法
+            thinking_tokens = self._preprocess_text_pos(thinking_part)
+            reference_tokens = self._preprocess_text_pos(hint)
+
+            # 计算交集
+            common_tokens = thinking_tokens.intersection(reference_tokens)
+
+            # 计算精确率 (Precision)
+            # 在模型生成的所有词中，有多少是正确的（在hint中出现）
+            precision = len(common_tokens) / (len(thinking_tokens) + 1e-6)
+
+            # 计算召回率 (Recall)
+            # 在所有正确的词（hint）中，有多少被模型找到了
+            recall = len(common_tokens) / (len(reference_tokens) + 1e-6)
+
+            # 计算 F1-Score
+            if precision + recall == 0:
+                return 0.0
+
+            f1_score = 2 * (precision * recall) / (precision + recall)
+
+            return f1_score
+
+        except Exception as e:
+            print(f"在本地计算思考奖励时发生错误: {e}")
+            return 0.0
+
+    def get_answer_reward(self, response: str, reference_answer: str, task: str, gpu_id=None, answer_type=None) -> float:
+        """
+        Calculates the correctness reward for the answer.
+        Returns 1.0 if correct, 0.0 otherwise.
+        """
+        try:
+            if 'chart' in task:
+                # Assuming eval_one_chart returns a float (e.g., 1.0 for correct, 0.0 for incorrect)
+                reference_answer = reference_answer.lower().replace('answer:', '').strip()
+                reward = eval_one_chart(response, reference_answer, 0, answer_flag=self.answer_flag)
+                return float(reward)
+            else:
+                raise ValueError(f"Task '{task}' not supported for answer reward.")
+        except Exception as e:
+            # Catch specific exceptions and log them for better debugging.
+            print(f"An error occurred during answer reward calculation: {e}")
+            return 0.0
+
+    def get_format_reward(self, response: str, min_thinking_length: int = 0) -> float:
+        """
+        Calculates the format reward based on two criteria:
+        1. The 'answer:' flag must appear exactly once.
+        2. The preceding 'thinking' text must meet a minimum length.
+
+        Returns 1.0 if the format is correct, 0.0 otherwise.
+        """
+        # 1. Check if the answer flag appears exactly once.
+        if len(self.count_pattern.findall(response)) != 1:
+            return 0.0
+
+        # 2. Check if the 'thinking' part has sufficient length.
+        thinking = response.lower().split(self.answer_flag)[0]
+        if len(thinking.strip()) < min_thinking_length:
+            return 0.0
+
+        return 1.0

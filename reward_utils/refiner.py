@@ -67,7 +67,7 @@ Conclusion: [Draw the conclusion, e.g., The year with the highest sales was 2021
             return None
 
 
-class ContextRefiner_pre:
+class ContextRefinerLocal:
     """
     A class to calculate various rewards for a model's response.
     Encapsulates logic for answer correctness, format adherence, and thinking quality.
