@@ -127,7 +127,7 @@ if __name__ == "__main__":
     SOURCE_IMAGES_ROOT_DIR = "/chartqa_output/llavacot/LLaVA-CoT-100k/unzipped_images"
 
     # 2. 设置您希望保存处理后数据的输出目录
-    OUTPUT_DIR = "/apdcephfs_nj4/share_300377003/realzliu/data/chartqa_output/llavacot"
+    OUTPUT_DIR = "/path/to/data/chartqa_output/llavacot"
 
     # 3. 调用主函数
     process_and_save_llava_cot(

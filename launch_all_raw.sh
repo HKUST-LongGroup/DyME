@@ -2,7 +2,7 @@
 
 # ... (保留您之前的配置变量) ...
 REMOTE_USER="root"
-PROJECT_PATH="/apdcephfs_qy4/share_302593112/realzliu/code/DyME"
+PROJECT_PATH="Path/to/DyME"
 TRAIN_SCRIPT="main_rebuttal"
 SCRIPT_ARGS="--mode grpo"
 
@@ -19,7 +19,7 @@ WORKER_HOSTS=(
 
 # ... (保留您的环境变量设置 ENV_SETUP_CMDS) ...
 ENV_SETUP_CMDS="
-export WANDB_API_KEY=a07e39e43f1a318a12a9b43a73d79d6ad4f4d2e2;
+export WANDB_API_KEY=YOUR_WANDB_API_KEY;
 export NCCL_IB_GID_INDEX=3;
 export NCCL_IB_SL=3;
 export NCCL_CHECKS_DISABLE=1;

@@ -6,7 +6,7 @@ import os
 from copy import deepcopy
 from tqdm import tqdm
 import sys
-sys.path.append('/apdcephfs_qy4/share_302593112/realzliu/code/DyME')
+sys.path.append('/path/to/code/DyME')
 from client_utils.openai_api import OpenAIClient
 from data_utils.chart.prompts import prompt_refine
 from data_utils.commom_util import prompt_ic

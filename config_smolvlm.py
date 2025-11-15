@@ -37,7 +37,7 @@ TRAINING_CONFIG = {
         "seed": 42,
     },
     "sft_args": {
-        "output_dir": '/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart',
+        "output_dir": '/path/to/sft-llavaov-chart',
         "logging_steps": 1,
         "per_device_train_batch_size": 2,
         "gradient_accumulation_steps": 4,
@@ -77,7 +77,7 @@ CLIENT_CONFIG = {
 # ====== Dataset Configuration ======
 DATASET_CONFIG = {
     # "train_dataset": "/chartqa_output/json/train_new_prerefine.json",  # 训练数据路径
-    "train_dataset": "/apdcephfs_nj4/share_300377003/realzliu/data/chartqa_output/json/train_new_prerefine.json",  # 训练数据路径
+    "train_dataset": "/path/to/data/chartqa_output/json/train_new_prerefine.json",  # 训练数据路径
     "eval_dataset": "HuggingFaceM4/ChartQA",  # 验证数据路径
 }
 

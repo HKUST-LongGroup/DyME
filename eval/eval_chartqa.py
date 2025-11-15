@@ -19,15 +19,15 @@ DEVICE = accelerator.device
 # Model and Processor Configuration
 model_args = {}  # Use {"torch_dtype":torch.bfloat16} if desired and supported
 
-## 这个是DyME后的llava，使用/apdcephfs_nj4/share_300377003/realzliu/data/chartqa_output/json/train_new_prerefine.json 这个数据
-model_id = '/apdcephfs_qy4/share_302593112/realzliu/code/DyME/output/test/checkpoint-2900'
-model_id = '/apdcephfs_qy4/share_302593112/realzliu/code/DyME/output-dist/test/final_checkpoint'
+## 这个是DyME后的llava，使用/path/to/data/chartqa_output/json/train_new_prerefine.json 这个数据
+model_id = '/path/to/code/DyME/output/test/checkpoint-2900'
+model_id = '/path/to/code/DyME/output-dist/test/final_checkpoint'
 
-## 这个是sft后的llava，使用/apdcephfs_nj4/share_300377003/realzliu/data/chartqa_output/json/train_new_prerefine.json 这个数据
-# model_id = '/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart/checkpoint-400'
+## 这个是sft后的llava，使用/path/to//data/chartqa_output/json/train_new_prerefine.json 这个数据
+# model_id = '/path/to//sft-llavaov-chart/checkpoint-400'
 
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart-llava_cot/checkpoint-1203'
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-chart-llava/checkpoint-144'
+model_id = '/path/to/sft-llavaov-chart-llava_cot/checkpoint-1203'
+model_id = '/path/to/grpo-chart-llava/checkpoint-144'
 
 config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
 tokenizer = AutoTokenizer.from_pretrained(model_id, config=config, trust_remote_code=True)
