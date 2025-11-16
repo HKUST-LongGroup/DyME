@@ -111,8 +111,8 @@ def process_item_worker(item):
 def main():
     # 包含了端口和服务器数量信息的配置
     from config import CLIENT_CONFIG
-    input_filename = '/chartqa_output/json/train_new.json'
-    output_filename = '/chartqa_output/json/train_new_prerefine.json'
+    input_filename = '/path/to/chartqa_output/json/train_new.json'
+    output_filename = '/path/to/chartqa_output/json/train_new_prerefine.json'
 
     NUM_PROCESSES = 64
     print(f"将使用 {NUM_PROCESSES} 个进程，并向 {CLIENT_CONFIG['num_server']} 个服务器分发请求...")

@@ -47,7 +47,7 @@ def collate_fn(examples, processor, label_id=151646):
       image = example["image"]
       if isinstance(image, str):
         if not os.path.exists(image):
-            image = image.replace('/chartqa_output/', '/path/to/chartqa_output/')
+            image = image.replace('/path/to/chartqa_output/', '/path/to/chartqa_output/')
         image = PILImage.open(image)
       if image.mode != 'RGB':
         image = image.convert('RGB')

@@ -76,7 +76,6 @@ CLIENT_CONFIG = {
 
 # ====== Dataset Configuration ======
 DATASET_CONFIG = {
-    # "train_dataset": "/chartqa_output/json/train_new_prerefine.json",  # 训练数据路径
     "train_dataset": "/path/to/data/chartqa_output/json/train_new_prerefine.json",  # 训练数据路径
     "eval_dataset": "HuggingFaceM4/ChartQA",  # 验证数据路径
 }

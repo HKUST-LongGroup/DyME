@@ -4,7 +4,7 @@ import os
 from PIL import Image
 
 
-def save_chartqa_with_absolute_paths(base_output_dir="/chartqa_output"):
+def save_chartqa_with_absolute_paths(base_output_dir="/path/to/chartqa_output"):
     """
     加载 HuggingFaceM4/ChartQA 数据集。
     为每张 PIL 图像生成一个唯一文件名，将图像保存到本地，
