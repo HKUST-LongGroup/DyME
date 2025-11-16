@@ -676,14 +676,28 @@ class DyMETrainer(Trainer):
         advantages = advantages.reshape(-1, 1)
         acc_rewards = acc_rewards.view(-1, self.num_generations)
         format_rewards = format_rewards.view(-1, self.num_generations)
+        context_rewards = context_rewards.view(-1, self.num_generations)
 
-        has_correct = (acc_rewards > 0.5).sum(1)
+        #### RAW
+        # has_correct = (acc_rewards > 0.5).sum(1)
+
+        #### CHANGE 1: use soft reward as threshold.
+        # has_correct = ((acc_rewards + context_rewards + format_rewards) / 3 > .9).sum(1)
+
+        #### CHANGE 2: sft always exists (has_correct should be all zero)
+        has_correct = (acc_rewards > 2).sum(1)
+
+
         format_rewards = format_rewards.view(-1)
 
         sft_check = []
         for i in range(batch_size):
             batch_id = i // self.num_generations
-            sft_check.append((has_correct[batch_id] == 0) & (i % self.num_generations == 0))
+
+            #### RAW
+            # sft_check.append((has_correct[batch_id] == 0) & (i % self.num_generations == 0))
+            #### CHANGE 2: sft always exists: 5 samples, the last one is always sft sample.
+            sft_check.append((has_correct[batch_id] == 0) & (i % self.num_generations == self.num_generations-1))
 
         hints = refine_context_in_parallel(self.refiner, question_wo_prompts, hints, answers, task=self.task_name, gpu_id=gpu_id)
 
@@ -699,20 +713,34 @@ class DyMETrainer(Trainer):
         final_completion_mask_list = []
         final_advantange_list = []
 
+        #### CHANGE 2: sft always exists, the weight is reducing with epoch.
+        import math
+        current_step = self.state.global_step
+        total_steps = self.state.max_steps
+        progress_fraction = current_step / total_steps
+        # --- 策略 1：余弦退火 ---
+        weight = 0.5 * (1.0 + math.cos(math.pi * progress_fraction))
+        self._metrics[mode]["dyme/sft_weight"].append(weight)
+
+
         for i in range(len(sft_padded_ids)):
             batch_id = i // self.num_generations
             if has_correct[batch_id] == 0:
-                if sft_check[i]:  # 第一个修改为正确答案，其他的保留为错误的。
+                if sft_check[i]:
                     completion_id_ = torch.cat([sft_padded_ids[i], completion_ids[i][0:0]])
                     completion_mask_ = torch.cat([sft_attn_masks[i], completion_mask[i][0:0]])
                     advantange_ = torch.cat([sft_advantages[i], advantages[i][0:0]])
-                    advantange_[:] = 1
+                    #### RAW
+                    # advantange_[:] = 1
+                    #### CHANGE 2: sft always exists, the weight is reducing with epoch.
+                    advantange_[:] = weight
                 else:
                     completion_id_ = torch.cat([completion_ids[i], completion_ids[i][0:0]])
                     completion_mask_ = torch.cat([completion_mask[i], sft_attn_masks[i][0:0]])
                     advantange_ = torch.cat([advantages[i], sft_advantages[i][0:0]])
                     advantange_ = advantange_.repeat_interleave(len(completion_id_))
-                    advantange_[:] = 0
+                    #### RAW
+                    # advantange_[:] = 0
 
             else:
                 completion_id_ = torch.cat([completion_ids[i], sft_padded_ids[i][0:0]])
@@ -738,9 +766,9 @@ class DyMETrainer(Trainer):
         input_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1).long()
         attention_completion_mask = torch.cat([prompt_mask, completion_mask], dim=1)
 
-        for s, a in enumerate(completion_advantange):
-            if acc_rewards.view(-1)[s] > 0 and format_rewards.view(-1)[s] > 0 and a[0] < 0:
-                print('no')
+        # for s, a in enumerate(completion_advantange):
+        #     if acc_rewards.view(-1)[s] > 0 and format_rewards.view(-1)[s] > 0 and a[0] < 0:
+        #         print('no')
 
         if self.accelerator.device.index == 0:
             completion_id = completion_ids[0]

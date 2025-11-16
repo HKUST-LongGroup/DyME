@@ -3,6 +3,7 @@ import os.path
 from PIL import Image as PILImage
 
 from data_utils.chart.data_collector import prepare_chart_rl_data, prepare_chart_sft_data
+from data_utils.lm_math.data_collector import prepare_math_lm_rl_data
 
 prompt_ic = """
 Based on the provided sentence <C>, extract all the visual elements. Organize them into a structured format that can be directly converted into a Python list. 
@@ -97,6 +98,42 @@ def collate_fn(examples, processor, label_id=151646):
 
     return batch
 
+def collate_fn_woI(examples, processor, label_id=151646):
+
+    texts = []
+    images = []
+    for example in examples:
+      question = example["prompt"]
+      answer = example.get("answer", None)
+      if answer is not None:
+          # --- FIX 1: "content" is now a simple string ---
+          messages = [
+              {"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."},
+              {"role": "user", "content": question},
+              {"role": "assistant", "content": answer}
+          ]
+          text = processor.apply_chat_template(messages, add_generation_prompt=False, tokenize=False)
+          texts.append(text.strip())
+      else:
+          # --- FIX 1: "content" is now a simple string ---
+          messages = [
+              {"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."},
+              {"role": "user", "content": question}
+          ]
+          text = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+          texts.append(text.strip())
+
+    # print(texts)
+    batch = processor(text=texts, return_tensors="pt", padding=True)
+
+    if label_id is not None:
+        labels = batch["input_ids"].clone()
+        labels[labels == processor.pad_token_id] = -100
+        labels[labels == label_id] = -100
+        batch["labels"] = labels
+
+    return batch
+
 def define_task_data_func(task, mode='rl'):
     if 'medical' in task:
         return None
@@ -104,7 +141,9 @@ def define_task_data_func(task, mode='rl'):
         if mode == 'rl':
             return prepare_chart_rl_data
         return prepare_chart_sft_data
-    elif 'math' in task:
+    elif 'math' == task:
         return None
+    elif 'math_lm' in task:
+        return prepare_math_lm_rl_data
     else:
         return None

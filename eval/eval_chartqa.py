@@ -26,8 +26,28 @@ model_id = '/apdcephfs_qy4/share_302593112/realzliu/code/DyME/output-dist/test/f
 ## 这个是sft后的llava，使用/apdcephfs_nj4/share_300377003/realzliu/data/chartqa_output/json/train_new_prerefine.json 这个数据
 # model_id = '/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart/checkpoint-400'
 
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart-llava_cot/checkpoint-1203'
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-chart-llava/checkpoint-144'
+model_id = '/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart-llava_cot/checkpoint-4010'
+model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-chart-llava/checkpoint-36'
+
+# model_id = '/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart-low/checkpoint-74'
+model_id = '/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart-low/checkpoint-740'
+
+# model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-llavaov-chart-llava_cot/checkpoint-300'
+
+model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-llavaov-chart-low/checkpoint-1470'
+
+model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-llavaov-chart/checkpoint-8000'
+# model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-chart-llava-beta/checkpoint-210'
+#
+model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-llavaov-chart-beta/checkpoint-570'
+# model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-llavaov-chart-low-beta/checkpoint-882'
+
+model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-llavaov-chart-low/checkpoint-126'
+# model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-llavaov-chart-low-beta'
+
+model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-llavaov-chart-low/checkpoint-420'
+
+model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-llavaov-chart-change1-09/final_checkpoint'
 
 config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
 tokenizer = AutoTokenizer.from_pretrained(model_id, config=config, trust_remote_code=True)
@@ -62,10 +82,6 @@ PROMPT_TEMPLATE = (
     "please use the format \"Answer: ..\"\n\n"
     "Question:\n\n{question}"
 )
-
-# PROMPT_TEMPLATE = (
-#     "{question}"
-# )
 
 def run_kh_batch(batch_data_list):  # Renamed from run_kh, takes a batch
     batch_images = []

@@ -21,7 +21,7 @@ from contextlib import nullcontext
 from typing import Any, Callable, Optional, Union
 
 from torch.nn.utils.rnn import pad_sequence
-
+from transformers.trainer_utils import seed_worker
 import datasets
 import torch
 import torch.utils.data
@@ -283,6 +283,11 @@ class DyMETrainer(Trainer):
         task_name: str = None,
         end_flag: str = '<|im_end|>',
     ):
+
+        #### CHANGE 3
+        self.sft_replay_buffer = []
+        self.sft_pool_trigger_size = 4*8*8  # 假设你从args传入
+
         self.task_name = task_name
         self.reward_weights = torch.nn.Parameter(torch.ones(3), requires_grad=False)
         self.reward_func_names = ['format', 'thinking', 'accuracy']
@@ -573,6 +578,51 @@ class DyMETrainer(Trainer):
             inputs = self._generate_and_score_completions(accumulated_local_batch)
         return inputs
 
+    def sft_collator_function_for_tensors(self, batch: list[dict]):
+        """
+        这个 collator 接收一个 list，每个元素是:
+        {'sft_ids': tensor(L), 'sft_masks': tensor(L), ...}
+        """
+
+        # 1. 从 batch (一个 list[dict]) 中解压出 list[Tensor]
+        sft_ids_list = [item['sft_ids'] for item in batch]
+        sft_masks_list = [item['sft_masks'] for item in batch]
+        pixel_values_list = [item['pixel_values'] for item in batch]
+        image_sizes_list = [item['image_sizes'] for item in batch]
+
+        # 2. --- 解决 Padding 问题 ---
+        #    调用你之前提到的 pad_sequence
+        input_ids = pad_sequence(
+            sft_ids_list,
+            batch_first=True,
+            padding_value=self.processing_class.tokenizer.pad_token_id
+        ).long()
+
+        attention_mask = pad_sequence(
+            sft_masks_list,
+            batch_first=True,
+            padding_value=0
+        ).long()
+
+        # 3. --- 解决 Labels 问题 ---
+        labels = input_ids.clone()
+        labels[attention_mask == 0] = -100  # 只屏蔽 padding
+        # -----------------------------------------------------------
+        #    !!! 这不是你想要的SFT。你需要的是 labels[:, :prompt_len] = -100
+        #    !!! 但因为你没有存 prompt_len，这里做不到！
+
+        # 4. 堆叠 (stack) 图像数据
+        pixel_values = torch.cat(pixel_values_list, dim=0)
+        image_sizes = torch.cat(image_sizes_list, dim=0)
+
+        return {
+            "input_ids": input_ids.to(self.accelerator.device),
+            "attention_mask": attention_mask.to(self.accelerator.device),
+            "labels": labels.to(self.accelerator.device),
+            "pixel_values": pixel_values.to(self.accelerator.device),
+            "image_sizes": image_sizes
+        }
+
     def _generate_and_score_completions(
         self, inputs: list[dict[str, Union[torch.Tensor, Any]]]
     ) -> dict[str, Union[torch.Tensor, Any]]:
@@ -676,13 +726,17 @@ class DyMETrainer(Trainer):
         advantages = advantages.reshape(-1, 1)
         acc_rewards = acc_rewards.view(-1, self.num_generations)
         format_rewards = format_rewards.view(-1, self.num_generations)
+        context_rewards = context_rewards.view(-1, self.num_generations)
 
+        #### RAW
         has_correct = (acc_rewards > 0.5).sum(1)
         format_rewards = format_rewards.view(-1)
 
         sft_check = []
         for i in range(batch_size):
             batch_id = i // self.num_generations
+
+            #### RAW
             sft_check.append((has_correct[batch_id] == 0) & (i % self.num_generations == 0))
 
         hints = refine_context_in_parallel(self.refiner, question_wo_prompts, hints, answers, task=self.task_name, gpu_id=gpu_id)
@@ -702,17 +756,30 @@ class DyMETrainer(Trainer):
         for i in range(len(sft_padded_ids)):
             batch_id = i // self.num_generations
             if has_correct[batch_id] == 0:
-                if sft_check[i]:  # 第一个修改为正确答案，其他的保留为错误的。
-                    completion_id_ = torch.cat([sft_padded_ids[i], completion_ids[i][0:0]])
-                    completion_mask_ = torch.cat([sft_attn_masks[i], completion_mask[i][0:0]])
-                    advantange_ = torch.cat([sft_advantages[i], advantages[i][0:0]])
-                    advantange_[:] = 1
+                if sft_check[i]:
+                    #### CHANGE 3
+                    sft_ids = torch.cat([prompt_ids[i], sft_padded_ids[i]], dim=0)
+                    sft_masks = torch.cat([prompt_mask[i], sft_attn_masks[i]], dim=0)
+
+                    sft_sample = {
+                        "sft_ids": sft_ids,
+                        "sft_masks": sft_masks,
+                        "pixel_values": pixel_values[i].unsqueeze(0),
+                        "image_sizes": image_sizes[i].unsqueeze(0)
+                    }
+                    self.sft_replay_buffer.append(sft_sample)
+
+                    #### CHANGE 3: Do not add sft sample this time.
+                    completion_id_ = torch.cat([completion_ids[i], completion_ids[i][0:0]])
+                    completion_mask_ = torch.cat([completion_mask[i], sft_attn_masks[i][0:0]])
+                    advantange_ = torch.cat([advantages[i], sft_advantages[i][0:0]])
+                    advantange_ = advantange_.repeat_interleave(len(completion_id_))
                 else:
                     completion_id_ = torch.cat([completion_ids[i], completion_ids[i][0:0]])
                     completion_mask_ = torch.cat([completion_mask[i], sft_attn_masks[i][0:0]])
                     advantange_ = torch.cat([advantages[i], sft_advantages[i][0:0]])
                     advantange_ = advantange_.repeat_interleave(len(completion_id_))
-                    advantange_[:] = 0
+
 
             else:
                 completion_id_ = torch.cat([completion_ids[i], sft_padded_ids[i][0:0]])
@@ -737,10 +804,6 @@ class DyMETrainer(Trainer):
         completion_advantange = completion_advantange.to(device)
         input_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1).long()
         attention_completion_mask = torch.cat([prompt_mask, completion_mask], dim=1)
-
-        for s, a in enumerate(completion_advantange):
-            if acc_rewards.view(-1)[s] > 0 and format_rewards.view(-1)[s] > 0 and a[0] < 0:
-                print('no')
 
         if self.accelerator.device.index == 0:
             completion_id = completion_ids[0]
@@ -866,64 +929,117 @@ class DyMETrainer(Trainer):
     def _compute_loss(self, model, inputs):
         # return torch.nn.Parameter(torch.tensor(0.0, device=self.accelerator.device))  # Dummy loss for compatibility
         # Compute the per-token log probabilities for the model
-        prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
-        completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
-        pixel_values = inputs["pixel_values"]
-        # has_correct = inputs["has_correct"]
-        image_sizes = inputs["img_sizes"]
-        input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
-        attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)
-        logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
-        try:
-            per_token_logps = self._get_per_token_logps(model, input_ids, attention_mask, pixel_values, image_sizes,
-                                               logits_to_keep)
-        except Exception as e:
-            print(f"Error in _get_per_token_logps: {e}")
-            raise e
 
-        # sft_loss = -(per_token_logps * completion_mask).sum(-1) / completion_mask.sum(-1)
-        advantages = inputs["advantages"][:, 0]
-        # sft_loss = (sft_loss * (advantages > 0)).sum() * (has_correct == 0)
-        # return sft_loss
-        # When using num_iterations == 1, old_per_token_logps == per_token_logps, so we can skip it's computation (see
-        # _generate_and_score_completions) and use per_token_logps.detach() instead.
-        old_per_token_logps = inputs["old_per_token_logps"] if self.num_iterations > 1 else per_token_logps.detach()
-        coef_1 = torch.exp(per_token_logps - old_per_token_logps)
-        coef_2 = torch.clamp(coef_1, 1 - self.epsilon_low, 1 + self.epsilon_high)
-        per_token_loss1 = coef_1 * advantages.unsqueeze(1)
-        per_token_loss2 = coef_2 * advantages.unsqueeze(1)
-        per_token_loss = -torch.min(per_token_loss1, per_token_loss2)
+        # --- 检查 SFT 触发器 ---
+        local_pool_size = len(self.sft_replay_buffer)
+        local_size_tensor = torch.tensor([local_pool_size],
+                                         device=self.accelerator.device,
+                                         dtype=torch.long)
+        torch.distributed.all_reduce(local_size_tensor, op=torch.distributed.ReduceOp.SUM)
+        global_pool_size = local_size_tensor.item()
 
-        if self.loss_type == "grpo":
-            loss = ((per_token_loss * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(min=1.0)).mean()
-        elif self.loss_type == "bnpo":
-            loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(min=1.0)
-        elif self.loss_type == "dr_grpo":
-            loss = (per_token_loss * completion_mask).sum() / (per_token_loss.size(0) * self.max_completion_length)
+        is_sft_step = (global_pool_size >= self.sft_pool_trigger_size)
+
+        # --- 逻辑分支 ---
+
+        if is_sft_step:
+            # --- 分支 1：执行 SFT 训练 ---
+            # (这将替换 GRPO 步骤)
+
+            # 1. 收集并清空
+            all_processes_pools = self.accelerator.gather_object(self.sft_replay_buffer)
+            self.sft_replay_buffer = []
+
+            # 2. 展平为全局列表
+            global_sft_data = [
+                item for sublist in all_processes_pools for item in sublist
+            ]
+
+            # 3. 检查数据是否为空
+            if not global_sft_data:
+                # 如果收集了个寂寞，就跳过
+                return torch.tensor(0.0, device=self.accelerator.device, requires_grad=True)
+
+            # 4. --- 核心修改：一次性 Collate ---
+            try:
+                sft_batch = self.sft_collator_function_for_tensors(global_sft_data)
+            except Exception as e:
+                print(f"Error during SFT collate-all: {e}")
+                # 你很可能会在这里遇到 padding 或 label 错误
+                raise e
+
+            # 5. --- 核心修改：一次性 Backward ---
+            #    对这 *一个* 大批次执行 *一次* 前向传播
+            with self.accelerator.autocast():
+                outputs = model(**sft_batch)
+                sft_loss = outputs.loss  # 模型自动计算平均损失
+
+            # 6. 记录并返回 SFT 损失
+            #    Trainer 的 training_step 会自动对这个返回的 loss 调用 backward()
+            self._metrics['train']["sft_replay_loss"].append(sft_loss.item())
+            # 记录一个 "标志"，以便在 wandb/tensorboard 上看到 SFT 何时被触发
+            self._metrics['train']["sft_triggered"].append(1.0)
+            return sft_loss
         else:
-            raise ValueError(f"Unknown loss type: {self.loss_type}")
-        # loss = (has_correct > 0) * loss + sft_loss
-        # loss = (has_correct > 0) * loss
-        # Log the metrics
-        mode = "train" if self.model.training else "eval"
+            prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
+            completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
+            pixel_values = inputs["pixel_values"]
+            # has_correct = inputs["has_correct"]
+            image_sizes = inputs["img_sizes"]
+            input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
+            attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)
+            logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
+            try:
+                per_token_logps = self._get_per_token_logps(model, input_ids, attention_mask, pixel_values, image_sizes,
+                                                   logits_to_keep)
+            except Exception as e:
+                print(f"Error in _get_per_token_logps: {e}")
+                raise e
 
-        # Compute the clipped probability ratios
-        is_low_clipped = (coef_1 < 1 - self.epsilon_low) & (advantages.unsqueeze(1) < 0)
-        is_high_clipped = (coef_1 > 1 + self.epsilon_high) & (advantages.unsqueeze(1) > 0)
-        is_region_clipped = is_low_clipped | is_high_clipped
+            # sft_loss = -(per_token_logps * completion_mask).sum(-1) / completion_mask.sum(-1)
+            advantages = inputs["advantages"][:, 0]
+            # sft_loss = (sft_loss * (advantages > 0)).sum() * (has_correct == 0)
+            # return sft_loss
+            # When using num_iterations == 1, old_per_token_logps == per_token_logps, so we can skip it's computation (see
+            # _generate_and_score_completions) and use per_token_logps.detach() instead.
+            old_per_token_logps = inputs["old_per_token_logps"] if self.num_iterations > 1 else per_token_logps.detach()
+            coef_1 = torch.exp(per_token_logps - old_per_token_logps)
+            coef_2 = torch.clamp(coef_1, 1 - self.epsilon_low, 1 + self.epsilon_high)
+            per_token_loss1 = coef_1 * advantages.unsqueeze(1)
+            per_token_loss2 = coef_2 * advantages.unsqueeze(1)
+            per_token_loss = -torch.min(per_token_loss1, per_token_loss2)
 
-        low_clip = (is_low_clipped * completion_mask).sum() / completion_mask.sum()
-        high_clip = (is_high_clipped * completion_mask).sum() / completion_mask.sum()
-        clip_ratio = (is_region_clipped * completion_mask).sum() / completion_mask.sum()
+            if self.loss_type == "grpo":
+                loss = ((per_token_loss * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(min=1.0)).mean()
+            elif self.loss_type == "bnpo":
+                loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(min=1.0)
+            elif self.loss_type == "dr_grpo":
+                loss = (per_token_loss * completion_mask).sum() / (per_token_loss.size(0) * self.max_completion_length)
+            else:
+                raise ValueError(f"Unknown loss type: {self.loss_type}")
+            # loss = (has_correct > 0) * loss + sft_loss
+            # loss = (has_correct > 0) * loss
+            # Log the metrics
+            mode = "train" if self.model.training else "eval"
 
-        gathered_low_clip = self.accelerator.gather_for_metrics(low_clip)
-        self._metrics[mode]["clip_ratio/low_mean"].append(gathered_low_clip.nanmean().item())
-        self._metrics[mode]["clip_ratio/low_min"].append(nanmin(gathered_low_clip).item())
-        gathered_high_clip = self.accelerator.gather_for_metrics(high_clip)
-        self._metrics[mode]["clip_ratio/high_mean"].append(gathered_high_clip.nanmean().item())
-        self._metrics[mode]["clip_ratio/high_max"].append(nanmax(gathered_high_clip).item())
-        gathered_clip_ratio = self.accelerator.gather_for_metrics(clip_ratio)
-        self._metrics[mode]["clip_ratio/region_mean"].append(gathered_clip_ratio.nanmean().item())
+            # Compute the clipped probability ratios
+            is_low_clipped = (coef_1 < 1 - self.epsilon_low) & (advantages.unsqueeze(1) < 0)
+            is_high_clipped = (coef_1 > 1 + self.epsilon_high) & (advantages.unsqueeze(1) > 0)
+            is_region_clipped = is_low_clipped | is_high_clipped
+
+            low_clip = (is_low_clipped * completion_mask).sum() / completion_mask.sum()
+            high_clip = (is_high_clipped * completion_mask).sum() / completion_mask.sum()
+            clip_ratio = (is_region_clipped * completion_mask).sum() / completion_mask.sum()
+
+            gathered_low_clip = self.accelerator.gather_for_metrics(low_clip)
+            self._metrics[mode]["clip_ratio/low_mean"].append(gathered_low_clip.nanmean().item())
+            self._metrics[mode]["clip_ratio/low_min"].append(nanmin(gathered_low_clip).item())
+            gathered_high_clip = self.accelerator.gather_for_metrics(high_clip)
+            self._metrics[mode]["clip_ratio/high_mean"].append(gathered_high_clip.nanmean().item())
+            self._metrics[mode]["clip_ratio/high_max"].append(nanmax(gathered_high_clip).item())
+            gathered_clip_ratio = self.accelerator.gather_for_metrics(clip_ratio)
+            self._metrics[mode]["clip_ratio/region_mean"].append(gathered_clip_ratio.nanmean().item())
+
         return loss
 
     def prediction_step(self, model, inputs, prediction_loss_only, ignore_keys: Optional[list[str]] = None):

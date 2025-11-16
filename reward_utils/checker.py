@@ -5,9 +5,8 @@ from client_utils.openai_api import OpenAIClient
 from data_utils.chart.evaluator import eval_one_chart
 from data_utils.commom_util import prompt_ic
 from data_utils.chart.prompts import prompt_thinking_reward
-
+import math
 # ----------------------------------------------------
-
 
 class RewardCalculator:
     """
@@ -45,6 +44,11 @@ class RewardCalculator:
                 reference_answer = reference_answer.lower().replace('answer:', '').strip()
                 reward = eval_one_chart(response, reference_answer, 0, answer_flag=self.answer_flag)
                 return float(reward)
+            elif 'math_lm' in task:
+                reference_answer = reference_answer.lower().replace('answer:', '').strip()
+                reward = eval_one_chart(response, reference_answer, 0, answer_flag=self.answer_flag)
+                return float(reward)
+
             else:
                 raise ValueError(f"Task '{task}' not supported for answer reward.")
         except Exception as e:
@@ -202,6 +206,11 @@ class RewardCalculatorLocal:
                 reference_answer = reference_answer.lower().replace('answer:', '').strip()
                 reward = eval_one_chart(response, reference_answer, 0, answer_flag=self.answer_flag)
                 return float(reward)
+            elif 'math_lm' in task:
+                reference_answer = reference_answer.lower().replace('answer:', '').strip()
+                reward = eval_one_chart(response, reference_answer, 0, answer_flag=self.answer_flag)
+                return float(reward)
+
             else:
                 raise ValueError(f"Task '{task}' not supported for answer reward.")
         except Exception as e:

@@ -3,8 +3,8 @@ import torch
 
 # ====== Model Configuration ======
 MODEL_CONFIG = {
-    "pretrained_model_path": "HuggingFaceTB/SmolVLM-500M-Instruct",  # 预训练模型路径
-    "use_flash_attention_2": True,
+    "pretrained_model_path": "Qwen/Qwen2.5-VL-7B-Instruct",  # 预训练模型路径
+    "use_flash_attention_2": False,
     "torch_dtype": "bfloat16",
 }
 
@@ -15,14 +15,14 @@ TRAINING_CONFIG = {
     "num_client": 8,  # 并发客户端数量，通常与 GPU 数量相同
     # RL阶段的参数 (根据原脚本的rl_args)
     "dyme_args": {
-        "output_dir": os.path.join('output', "test"),
+        "output_dir": '/apdcephfs_nj4/share_300377003/realzliu/dyme-qwen25_7B-chart-llava_cot',
         "logging_steps": 1,
-        "num_generations": 4,  # RL 阶段可以生成多个响应进行比较
+        "num_generations": 8,  # RL 阶段可以生成多个响应进行比较
         "max_completion_length": 300,
         "per_device_train_batch_size": 1,
         "gradient_accumulation_steps": 16,
         "num_train_epochs": 10,
-        "learning_rate": 8e-5,
+        "learning_rate": 1e-5,
         "bf16": True,  # 使用 bf16 而不是 fp16
         "gradient_checkpointing": False,
         "ddp_find_unused_parameters": False,
@@ -36,31 +36,11 @@ TRAINING_CONFIG = {
         "loss_type": 'grpo',  # GRPO specific
         "seed": 42,
     },
-    "sft_args": {
-        "output_dir": '/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart',
-        "logging_steps": 1,
-        "per_device_train_batch_size": 2,
-        "gradient_accumulation_steps": 4,
-        "num_train_epochs": 10,
-        "learning_rate": 1e-5,
-        "bf16": True,  # 使用 bf16 而不是 fp16
-        "gradient_checkpointing": False,
-        "ddp_find_unused_parameters": False,
-        "max_grad_norm": 1.0,
-        "save_steps": 100,
-        "weight_decay": 0.01,
-        "warmup_steps": 0,
-        "eval_strategy": "steps",
-        "eval_steps": 10000,
-        "seed": 42,
-        "remove_unused_columns": False
-    }
-
 }
 
 RL_CONFIG = {
     "answer_flag": "Answer:",
-    "end_flag": "<end_of_utterance>"
+    "end_flag": "<|im_end|>"
 }
 
 # ====== Client Configuration for Reward Calculation ======
@@ -77,7 +57,7 @@ CLIENT_CONFIG = {
 # ====== Dataset Configuration ======
 DATASET_CONFIG = {
     # "train_dataset": "/chartqa_output/json/train_new_prerefine.json",  # 训练数据路径
-    "train_dataset": "/apdcephfs_nj4/share_300377003/realzliu/data/chartqa_output/json/train_new_prerefine.json",  # 训练数据路径
+    "train_dataset": "/apdcephfs_nj4/share_300377003/realzliu/data/chartqa_output/llavacot/json/chartqa_train_processed.json",  # 训练数据路径
     "eval_dataset": "HuggingFaceM4/ChartQA",  # 验证数据路径
 }
 

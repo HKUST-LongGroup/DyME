@@ -201,7 +201,7 @@ def nanstd(tensor: torch.Tensor) -> torch.Tensor:
 
 
 def split_tensor_dict(
-    tensor_dict: dict[str, Optional[torch.Tensor]], num_chunks: int
+    tensor_dict: dict[str, Optional[torch.Tensor]], num_chunks: int, image_patch_id=151655, patch_id_times=4
 ) -> list[dict[str, Optional[torch.Tensor]]]:
     """
     Splits a dictionary of tensors along the first dimension into `num_chunks` equal parts.
@@ -217,23 +217,47 @@ def split_tensor_dict(
             {"x": tensor([[ 8,  9], [10, 11]]), "y": tensor([[4], [5]])}
         ]
     """
-    first_tensor = next(tensor for tensor in tensor_dict.values() if tensor is not None)
-    chunk_size = first_tensor.shape[0] // num_chunks
-    # has = []
-    # if 'has_correct' in tensor_dict:
-    #     has = tensor_dict['has_correct']
-    #     del tensor_dict['has_correct']
-    l1 = []
-    for i in range(num_chunks):
-        dt = {
-            key: tensor[i * chunk_size : (i + 1) * chunk_size] if tensor is not None else None
-            for key, tensor in tensor_dict.items()
-        }
-        # if len(has) > 0:
-        #     dt['has_correct'] = has[i]
-        l1.append(dt)
+    if image_patch_id is None:
+        first_tensor = next(tensor for tensor in tensor_dict.values() if tensor is not None)
+        chunk_size = first_tensor.shape[0] // num_chunks
+        # has = []
+        # if 'has_correct' in tensor_dict:
+        #     has = tensor_dict['has_correct']
+        #     del tensor_dict['has_correct']
+        l1 = []
+        for i in range(num_chunks):
+            dt = {
+                key: tensor[i * chunk_size : (i + 1) * chunk_size] if tensor is not None else None
+                for key, tensor in tensor_dict.items()
+            }
+            # if len(has) > 0:
+            #     dt['has_correct'] = has[i]
+            l1.append(dt)
 
-    return l1
+        return l1
+    else:
+        first_tensor = next(tensor for tensor in tensor_dict.values() if tensor is not None)
+        chunk_size = first_tensor.shape[0] // num_chunks
+        l1 = []
+        for i in range(num_chunks):
+            dt = {}
+            for key, tensor in tensor_dict.items():
+                if key != 'pixel_values':
+                    dt[key] = tensor[i * chunk_size : (i + 1) * chunk_size] if tensor is not None else None
+
+            l1.append(dt)
+
+        if 'pixel_values' in tensor_dict:
+            raw_pixel_values = tensor_dict['pixel_values']
+            start_image_patch = 0
+            for dt in l1:
+                batch_input_ids = dt['prompt_ids']
+                num_image_patches = (batch_input_ids == image_patch_id).sum().item() * patch_id_times
+                batch_pixel_values = raw_pixel_values[start_image_patch : start_image_patch + num_image_patches]
+                start_image_patch += num_image_patches
+                dt['pixel_values'] = batch_pixel_values
+
+        return l1
 
 
 def nanmin(tensor: torch.Tensor) -> torch.Tensor:
@@ -429,126 +453,6 @@ class DyMETrainer(Trainer):
         self.model_accepts_loss_kwargs = False
         self.processing_func = processing_func
 
-    def evaluate(self,
-                 eval_dataset=None,
-                 ignore_keys=None,
-                 metric_key_prefix="eval"):
-        # 1. 准备 eval dataloader
-        eval_dataset = eval_dataset if eval_dataset is not None else self.eval_dataset
-
-        eval_dataloader = self.get_eval_dataloader(eval_dataset)
-        eval_dataloader = self.accelerator.prepare(eval_dataloader)
-        all_preds = []
-        all_labels = []
-        all_acc = []
-        all_acc_ex = []
-        # 2. 遍历每个 batch，生成并解码
-        self.model.eval()
-
-        # 2.1 调用 generate
-        with unwrap_model_for_generation(
-                self.model_wrapped, self.accelerator, gather_deepspeed3_params=self.args.ds3_gather_for_generation
-        ) as unwrapped_model:
-            with (
-                FSDP.summon_full_params(self.model_wrapped, recurse=False)
-                if self.is_fsdp_enabled
-                else nullcontext()
-            ):
-                for step, batch in enumerate(eval_dataloader):
-                    # 把 inputs 转到设备上
-                    labels = []
-                    prepare_input = []
-                    prompts = []
-
-                    for b in batch:
-                        if 'chart' in self.task_name:
-                            query = b['query']
-                            prompt_temp = (
-                                    "For the question below, follow the following instructions:\n"
-                                    + "-First output your step-by-step reasoning, then provide your answer beginning with “Answer:”.\n"
-                                    + "-The answer should contain as few words as possible.\n"
-                                    + "-Don't paraphrase or reformat the text you see in the image.\n"
-                                    + "-Answer a binary question with Yes or No.\n"
-                                    + "-When asked to give a numerical value, provide a number like 2 instead of Two.\n"
-                                    + "-If the final answer has two or more items, provide it in the list format like [1, 2].\n"
-                                    + "-When asked to give a ratio, give out the decimal value like 0.25 instead of 1:4.\n"
-                                    + "-When asked to give a percentage, give out the whole value like 17 instead of decimal like 0.17%.\n"
-                                    + "-Don't include any units in the answer.\n"
-                                    + "-Do not include any full stops at the end of the answer.\n"
-                                    + "-Try to include the full label from the graph when asked about an entity.\n"
-                                    + "Question: "
-                            )
-                            prompt = f"""{query} Think step by step and then answer the question."""
-
-                            # question = prompt + question
-                            b['prompt'] = prompt
-                            labels.append(b['answer'])
-                            prompts.append(prompt)
-                            b['answer'] = None  # for generation
-                            prepare_input.append(b)
-
-                    prepare_input = self.processing_func(prepare_input)
-
-                    inputs = {
-                        k: v.to(self.accelerator.device).to(torch.bfloat16) if v.is_floating_point() else v.to(
-                            self.accelerator.device)
-                        for k, v in prepare_input.items()
-                    }
-
-                    prompt_completion_ids = unwrapped_model.generate(**inputs,
-                                                                     max_new_tokens=self.max_completion_length,
-                                                                     do_sample=False)
-                    # 2.2 解码成文本
-                    prompt_ids = inputs["input_ids"]
-                    prompt_length = prompt_ids.size(1)
-                    prompt_ids = prompt_completion_ids[:, :prompt_length]
-                    completion_ids = prompt_completion_ids[:, prompt_length:]
-
-                    preds = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
-
-                    batch_data = {'prompt': prompts, 'answer': labels, 'response': preds}
-
-                    all_rewards, format_rewards, acc_rewards, think_rewards = calculate_rewards_in_parallel(self.checker, batch_data, self.accelerator.process_index, task=self.task_name)
-
-                    # all_acc_show = self.accelerator.gather_for_metrics(
-                    #     all_acc,
-                    #     use_gather_object=True  # 因为它们是 Python list of str
-                    # )
-                    # if self.accelerator.is_main_process:
-                    #     import numpy as np
-                    #     all_acc_show = np.array(all_acc_show)
-                    #     print(all_acc_show.mean())
-            # 3. 计算指标
-        all_acc_show = self.accelerator.gather_for_metrics(
-            acc_rewards,
-            use_gather_object=True  # 因为它们是 Python list of str
-        )
-        if 'medical' in self.task_name:
-            all_acc_show_closed = self.accelerator.gather_for_metrics(
-                all_acc_ex,
-                use_gather_object=True  # 因为它们是 Python list of str
-            )
-        else:
-            all_acc_show_closed = None
-        metrics = {}
-        if self.accelerator.is_main_process:
-            import numpy as np
-            all_acc_show = np.array(all_acc_show)
-
-            metrics = {
-                f"acc_eval": float(all_acc_show.mean()),
-                f"eval_num": len(all_acc_show),
-            }
-            if 'medical' in self.task_name:
-                all_acc_show_closed = np.array(all_acc_show_closed)
-                metrics['acc_eval_closed'] = all_acc_show_closed.mean()
-                metrics['eval_num_closed'] = len(all_acc_show_closed)
-
-            # 4. 上报并返回
-            self.log(metrics)
-        self.model.train()
-        return metrics
-
     def _set_signature_columns_if_needed(self):
         # If `self.args.remove_unused_columns` is True, non-signature columns are removed.
         # By default, this method sets `self._signature_columns` to the model's expected inputs.
@@ -643,17 +547,22 @@ class DyMETrainer(Trainer):
 
     # Get the per-token log probabilities for the completions for the model and the reference model
     @profiling_decorator
-    def _get_per_token_logps(self, model, input_ids, attention_mask, pixel_values, image_sizes, logits_to_keep, batch_size=None) -> torch.Tensor:
+    def _get_per_token_logps(self, model, input_ids, attention_mask, pixel_values, image_grid_thws, logits_to_keep, batch_size=None) -> torch.Tensor:
         batch_size = batch_size or input_ids.size(0)  # Chunk inputs into smaller batches to reduce memory peak
         all_logps = []
+        patch_s = 0
         for i in range(0, input_ids.size(0), batch_size):
             input_ids_batch = input_ids[i : i + batch_size]
             attention_mask_batch = attention_mask[i : i + batch_size]
-            pixel_values_batch = pixel_values[i : i + batch_size]
-            # pixel_attention_mask_batch = pixel_attention_mask[i : i + batch_size]
+            img_id = self.processing_class.tokenizer.convert_tokens_to_ids('<|image_pad|>')
+            image_patch_nums = (input_ids_batch == img_id).sum().item() * 4 # 每个 image_pad 对应 4 个图像 patch
+            # print("image_patch_nums", image_patch_nums, pixel_values.shape)
+            pixel_values_batch = pixel_values[patch_s : patch_s + image_patch_nums]
+            patch_s += image_patch_nums
+            image_grid_thw_batch = image_grid_thws[i : i + batch_size]
             # We add 1 to `logits_to_keep` because the last logits of the sequence is later excluded
             logits = model(
-                input_ids=input_ids_batch, pixel_values=pixel_values_batch, image_sizes=image_sizes,
+                input_ids=input_ids_batch, pixel_values=pixel_values_batch, image_grid_thw=image_grid_thw_batch,
                 attention_mask=attention_mask_batch
             ).logits
             # logits = logits[:, :-1, :]  # (B, L-1, H)
@@ -713,7 +622,8 @@ class DyMETrainer(Trainer):
         prompt_ids = prompt_inputs_generate["input_ids"]
         prompt_mask = prompt_inputs_generate["attention_mask"]
         pixel_values = prompt_inputs_generate["pixel_values"]
-        pixel_attention_mask = prompt_inputs_generate["pixel_attention_mask"]
+
+        image_grid_thws = prompt_inputs_generate["image_grid_thw"]
 
         # Regular generation path
         with unwrap_model_for_generation(
@@ -759,7 +669,7 @@ class DyMETrainer(Trainer):
         gpu_id = self.accelerator.device.index
         all_rewards, format_rewards, acc_rewards, context_rewards = calculate_rewards_in_parallel(self.checker, batch_data,
                                                                                    gpu_id=gpu_id,
-                                                                                   task=self.task_name)
+                                                                                   task=self.task_name, num_threads=1)
         all_rewards = torch.tensor(all_rewards, dtype=torch.float32).to(self.accelerator.device)
         format_rewards = torch.tensor(format_rewards, dtype=torch.float32).to(self.accelerator.device)
         context_rewards = torch.tensor(context_rewards, dtype=torch.float32).to(self.accelerator.device)
@@ -805,7 +715,7 @@ class DyMETrainer(Trainer):
             batch_id = i // self.num_generations
             sft_check.append((has_correct[batch_id] == 0) & (i % self.num_generations == 0))
 
-        hints = refine_context_in_parallel(self.refiner, question_wo_prompts, hints, answers, task=self.task_name, gpu_id=gpu_id)
+        hints = refine_context_in_parallel(self.refiner, question_wo_prompts, hints, answers, task=self.task_name, gpu_id=gpu_id, num_threads=1)
 
         sft_gt = [hint + '\n' + answer + self.end_flag for hint, answer in zip(hints, answers)]
 
@@ -878,7 +788,6 @@ class DyMETrainer(Trainer):
 
         # Concatenate prompt_mask with completion_mask for logit computation
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)  # (B, P+C)
-
         logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
         batch_size = self.args.per_device_train_batch_size if mode == "train" else self.args.per_device_eval_batch_size
 
@@ -886,7 +795,7 @@ class DyMETrainer(Trainer):
             # When using num_iterations == 1, old_per_token_logps == per_token_logps, so we can skip its
             # computation here, and use per_token_logps.detach() instead.
             if self.num_iterations > 1:
-                old_per_token_logps = self._get_per_token_logps(self.model, input_completion_ids, attention_completion_mask, pixel_values, pixel_attention_mask,
+                old_per_token_logps = self._get_per_token_logps(self.model, input_completion_ids, attention_completion_mask, pixel_values, image_grid_thws,
                                           logits_to_keep, batch_size)
             else:
                 old_per_token_logps = None
@@ -933,7 +842,7 @@ class DyMETrainer(Trainer):
             "advantages": completion_advantange,
             "old_per_token_logps": old_per_token_logps,
             # "has_correct": has_correct,
-            "pixel_attention_mask": pixel_attention_mask
+            "image_grid_thws": image_grid_thws
         }
 
     def compute_liger_loss(self, unwrapped_model, inputs):
@@ -989,13 +898,14 @@ class DyMETrainer(Trainer):
         prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
         completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
         pixel_values = inputs["pixel_values"]
+
         # has_correct = inputs["has_correct"]
-        pixel_attention_mask = inputs["pixel_attention_mask"]
+        image_grid_thws = inputs["image_grid_thws"]
         input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)
         logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
         try:
-            per_token_logps = self._get_per_token_logps(model, input_ids, attention_mask, pixel_values, pixel_attention_mask,
+            per_token_logps = self._get_per_token_logps(model, input_ids, attention_mask, pixel_values, image_grid_thws,
                                                logits_to_keep)
         except Exception as e:
             print(f"Error in _get_per_token_logps: {e}")

@@ -411,9 +411,9 @@ class DyMETrainer(Trainer):
         self.generation_config = GenerationConfig(
             max_new_tokens=self.max_completion_length,
             do_sample=True,
-            pad_token_id=processing_class.tokenizer.pad_token_id,
-            bos_token_id=processing_class.tokenizer.bos_token_id,
-            eos_token_id=processing_class.tokenizer.eos_token_id,
+            pad_token_id=processing_class.pad_token_id,
+            bos_token_id=processing_class.bos_token_id,
+            eos_token_id=processing_class.eos_token_id,
             temperature=self.temperature,
             top_p=self.top_p,
             top_k=self.top_k,
@@ -523,17 +523,15 @@ class DyMETrainer(Trainer):
 
     # Get the per-token log probabilities for the completions for the model and the reference model
     @profiling_decorator
-    def _get_per_token_logps(self, model, input_ids, attention_mask, pixel_values, image_sizes, logits_to_keep, batch_size=None) -> torch.Tensor:
+    def _get_per_token_logps(self, model, input_ids, attention_mask, logits_to_keep, batch_size=None) -> torch.Tensor:
         batch_size = batch_size or input_ids.size(0)  # Chunk inputs into smaller batches to reduce memory peak
         all_logps = []
         for i in range(0, input_ids.size(0), batch_size):
             input_ids_batch = input_ids[i : i + batch_size]
             attention_mask_batch = attention_mask[i : i + batch_size]
-            pixel_values_batch = pixel_values[i : i + batch_size]
-            # pixel_attention_mask_batch = pixel_attention_mask[i : i + batch_size]
-            # We add 1 to `logits_to_keep` because the last logits of the sequence is later excluded
+
             logits = model(
-                input_ids=input_ids_batch, pixel_values=pixel_values_batch, image_sizes=image_sizes,
+                input_ids=input_ids_batch,
                 attention_mask=attention_mask_batch
             ).logits
             # logits = logits[:, :-1, :]  # (B, L-1, H)
@@ -592,8 +590,6 @@ class DyMETrainer(Trainer):
             del prompt_inputs_generate["labels"]
         prompt_ids = prompt_inputs_generate["input_ids"]
         prompt_mask = prompt_inputs_generate["attention_mask"]
-        pixel_values = prompt_inputs_generate["pixel_values"]
-        image_sizes = prompt_inputs_generate["image_sizes"]
 
         # Regular generation path
         with unwrap_model_for_generation(
@@ -613,7 +609,7 @@ class DyMETrainer(Trainer):
             completion_ids = prompt_completion_ids[:, prompt_length:]
 
         # Mask everything after the first EOS token
-        is_eos = completion_ids == self.processing_class.tokenizer.eos_token_id
+        is_eos = completion_ids == self.processing_class.eos_token_id
         eos_idx = torch.full((is_eos.size(0),), is_eos.size(1), dtype=torch.long, device=device)
         eos_idx[is_eos.any(dim=1)] = is_eos.int().argmax(dim=1)[is_eos.any(dim=1)]
         sequence_indices = torch.arange(is_eos.size(1), device=device).expand(is_eos.size(0), -1)
@@ -627,19 +623,19 @@ class DyMETrainer(Trainer):
         completions = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
 
         batch_size = len(completion_ids)
-        images = [x['image'] for x in inputs]
+
         prompts = [x['prompt'] for x in inputs]
         question_wo_prompts = [x['question_wo_prompt'] for x in inputs]
         hints = [x.get('hint', '') for x in inputs]
         answers = [x['answer'] for x in inputs]
-        images_path = [image if isinstance(image, str) else image.filename for image in images]
+
         batch_data = {'prompt': prompts, 'hints': hints,
-                   'image': images_path, 'response': completions, 'answer': answers}
+                   'response': completions, 'answer': answers}
 
         gpu_id = self.accelerator.device.index
         all_rewards, format_rewards, acc_rewards, context_rewards = calculate_rewards_in_parallel(self.checker, batch_data,
                                                                                    gpu_id=gpu_id,
-                                                                                   task=self.task_name)
+                                                                                   task=self.task_name, num_threads=1)
         all_rewards = torch.tensor(all_rewards, dtype=torch.float32).to(self.accelerator.device)
         format_rewards = torch.tensor(format_rewards, dtype=torch.float32).to(self.accelerator.device)
         context_rewards = torch.tensor(context_rewards, dtype=torch.float32).to(self.accelerator.device)
@@ -685,11 +681,11 @@ class DyMETrainer(Trainer):
             batch_id = i // self.num_generations
             sft_check.append((has_correct[batch_id] == 0) & (i % self.num_generations == 0))
 
-        hints = refine_context_in_parallel(self.refiner, question_wo_prompts, hints, answers, task=self.task_name, gpu_id=gpu_id)
+        hints = refine_context_in_parallel(self.refiner, question_wo_prompts, hints, answers, task=self.task_name, gpu_id=gpu_id, num_threads=1)
 
         sft_gt = [hint + '\n' + answer + self.end_flag for hint, answer in zip(hints, answers)]
 
-        sft_dt = self.processing_class.tokenizer(sft_gt, return_tensors="pt", padding=True,
+        sft_dt = self.processing_class(sft_gt, return_tensors="pt", padding=True,
                                                         padding_side="right")
         sft_padded_ids = sft_dt['input_ids'].to(device)
         sft_attn_masks = sft_dt['attention_mask'].to(device)
@@ -729,7 +725,7 @@ class DyMETrainer(Trainer):
             final_advantange_list.append(advantange_)
 
         completion_ids = pad_sequence(final_completion_id_list, batch_first=True,
-                                      padding_value=self.processing_class.tokenizer.pad_token_id).long()
+                                      padding_value=self.processing_class.pad_token_id).long()
         completion_mask = pad_sequence(final_completion_mask_list, batch_first=True, padding_value=0)
         completion_advantange = pad_sequence(final_advantange_list, batch_first=True, padding_value=0)
         completion_ids = completion_ids.to(device)
@@ -766,7 +762,7 @@ class DyMETrainer(Trainer):
             # When using num_iterations == 1, old_per_token_logps == per_token_logps, so we can skip its
             # computation here, and use per_token_logps.detach() instead.
             if self.num_iterations > 1:
-                old_per_token_logps = self._get_per_token_logps(self.model, input_completion_ids, attention_completion_mask, pixel_values, image_sizes,
+                old_per_token_logps = self._get_per_token_logps(self.model, input_completion_ids, attention_completion_mask,
                                           logits_to_keep, batch_size)
             else:
                 old_per_token_logps = None
@@ -807,13 +803,10 @@ class DyMETrainer(Trainer):
         return {
             "prompt_ids": prompt_ids,
             "prompt_mask": prompt_mask,
-            "pixel_values": pixel_values,
             "completion_ids": completion_ids,
             "completion_mask": completion_mask,
             "advantages": completion_advantange,
             "old_per_token_logps": old_per_token_logps,
-            # "has_correct": has_correct,
-            "img_sizes": image_sizes
         }
 
     def compute_liger_loss(self, unwrapped_model, inputs):
@@ -868,14 +861,11 @@ class DyMETrainer(Trainer):
         # Compute the per-token log probabilities for the model
         prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
         completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
-        pixel_values = inputs["pixel_values"]
-        # has_correct = inputs["has_correct"]
-        image_sizes = inputs["img_sizes"]
         input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)
         logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
         try:
-            per_token_logps = self._get_per_token_logps(model, input_ids, attention_mask, pixel_values, image_sizes,
+            per_token_logps = self._get_per_token_logps(model, input_ids, attention_mask,
                                                logits_to_keep)
         except Exception as e:
             print(f"Error in _get_per_token_logps: {e}")

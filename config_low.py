@@ -3,8 +3,7 @@ import torch
 
 # ====== Model Configuration ======
 MODEL_CONFIG = {
-    "pretrained_model_path": "/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart/checkpoint-400",  # two-stage grpo
-    # "pretrained_model_path": "llava-hf/llava-onevision-qwen2-0.5b-ov-hf",  # two-stage grpo
+    "pretrained_model_path": "/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart-low/checkpoint-296",  # two-stage grpo
     "use_flash_attention_2": True,
     "torch_dtype": "bfloat16",
 }
@@ -16,14 +15,14 @@ TRAINING_CONFIG = {
     "num_client": 8,  # 并发客户端数量，通常与 GPU 数量相同
     # RL阶段的参数 (根据原脚本的rl_args)
     "dyme_args": {
-        "output_dir": os.path.join('output-dist', "test"),
+        "output_dir": '/apdcephfs_nj4/share_300377003/realzliu/dyme-llavaov-chart-low',
         "logging_steps": 1,
         "num_generations": 4,  # RL 阶段可以生成多个响应进行比较
         "max_completion_length": 300,
         "per_device_train_batch_size": 1,
         "gradient_accumulation_steps": 16,
         "num_train_epochs": 10,
-        "learning_rate": 8e-5,
+        "learning_rate": 1e-5,
         "bf16": True,  # 使用 bf16 而不是 fp16
         "gradient_checkpointing": False,
         "ddp_find_unused_parameters": False,
@@ -36,7 +35,7 @@ TRAINING_CONFIG = {
         "seed": 42,
     },
     "sft_args": {
-        "output_dir": '/apdcephfs_nj4/share_300377003/realzliu/sft-chart-llava_cot',
+        "output_dir": '/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart-low',
         "logging_steps": 1,
         "per_device_train_batch_size": 2,
         "gradient_accumulation_steps": 4,
@@ -46,6 +45,7 @@ TRAINING_CONFIG = {
         "gradient_checkpointing": False,
         "ddp_find_unused_parameters": False,
         "max_grad_norm": 1.0,
+        "max_length": 4096,
         # "save_steps": 100,
         "save_strategy": "epoch",
         "weight_decay": 0.01,
@@ -54,7 +54,7 @@ TRAINING_CONFIG = {
         "remove_unused_columns": False
     },
     "grpo_args":{
-        "output_dir": '/apdcephfs_nj4/share_300377003/realzliu/grpo-chart-llava-beta',
+        "output_dir": '/apdcephfs_nj4/share_300377003/realzliu/grpo-llavaov-chart-low',
         "logging_steps": 1,
         "num_generations": 4,  # RL 阶段可以生成多个响应进行比较
         "max_completion_length": 576,
@@ -70,7 +70,7 @@ TRAINING_CONFIG = {
         "save_strategy": "epoch",
         "weight_decay": 0.01,
         "warmup_steps": 0,
-        "beta": 0.04,  # GRPO specific
+        "beta": 0.0,  # GRPO specific
         "loss_type": 'grpo',  # GRPO specific
         "seed": 42,
     }
@@ -86,7 +86,7 @@ RL_CONFIG = {
 CLIENT_CONFIG = {
     "client_type": "openai",  # 客户端主机地址
     "api_key": "none",  # 客户端主机
-    "api_base": "http://29.39.226.175:%s/v1",  # 客户端，如果是本地服务需要预留端口
+    "api_base": "http://127.0.0.1:%s/v1",  # 客户端，如果是本地服务需要预留端口
     "timeout": 60,  # 请求超时时间
     "model_id": "Qwen/Qwen2.5-14B-Instruct-AWQ",  # 使用的模型ID
     "init_port": 23333, # 或者none代表在线服务
@@ -95,8 +95,7 @@ CLIENT_CONFIG = {
 
 # ====== Dataset Configuration ======
 DATASET_CONFIG = {
-    # "train_dataset": "/chartqa_output/json/train_new_prerefine.json",  # 训练数据路径
-    "train_dataset": "/apdcephfs_nj4/share_300377003/realzliu/data/chartqa_output/json/train_new_prerefine.json",
+    "train_dataset": "/apdcephfs_nj4/share_300377003/realzliu/data/chartqa_output/json/train_low.json",  # 训练数据路径
     # 训练数据路径
     "eval_dataset": "HuggingFaceM4/ChartQA",  # 验证数据路径
 }

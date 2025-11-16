@@ -23,7 +23,7 @@ from trl import GRPOConfig
 
 from config import CONFIG
 from data_utils.commom_util import collate_fn, define_task_data_func
-from DyMETrainer import DyMETrainer
+from DyMETrainer_change3 import DyMETrainer
 from reward_utils.checker import RewardCalculator, RewardCalculatorLocal
 from reward_utils.refiner import ContextRefiner, ContextRefinerLocal
 
@@ -122,6 +122,8 @@ def main():
         from config_llavacot import CONFIG
     elif config_select == 'low':
         from config_low import CONFIG
+    elif config_select == 'change':
+        from config_change import CONFIG
 
     # 1. Load Configurations
     model_config = CONFIG['model']

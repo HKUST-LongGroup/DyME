@@ -5,11 +5,11 @@ Main script for training a Llava-based model using the custom MyGRPOTrainer.
 This script handles:
 1. Configuration loading.
 2. Initialization of Weights & Biases (wandb) and Hugging Face Accelerate.
-3. Loading the model and processor.
+3. Loading the model (with PEFT/LoRA) and processor.
 4. Preparing the training and evaluation datasets.
 5. Setting up and running the GPRO trainer.
 """
-import argparse
+
 import os
 from functools import partial
 from typing import Dict, Any
@@ -18,12 +18,13 @@ import torch
 import wandb
 from accelerate import Accelerator
 from datasets import Dataset, load_dataset
-from transformers import AutoProcessor, LlavaOnevisionForConditionalGeneration
+from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
 from trl import GRPOConfig
+from peft import LoraConfig, get_peft_model, TaskType  # NEW: Import PEFT modules
 
-from config import CONFIG
+from config_7B import CONFIG
 from data_utils.commom_util import collate_fn, define_task_data_func
-from DyMETrainer import DyMETrainer
+from DyMETrainer_7B import DyMETrainer
 from reward_utils.checker import RewardCalculator, RewardCalculatorLocal
 from reward_utils.refiner import ContextRefiner, ContextRefinerLocal
 
@@ -45,19 +46,21 @@ def setup_accelerator_and_wandb(bf16) -> Accelerator:
     return accelerator
 
 
-def load_model_and_processor(model_config: Dict[str, Any]):
+# NEW: Updated function to accept peft_config
+def load_model_and_processor(model_config: Dict[str, Any], peft_config: Dict[str, Any]):
     """
-    Loads the pre-trained vision-language model and its associated processor.
+    Loads the pre-trained vision-language model, applies PEFT/LoRA, and loads its processor.
 
     Args:
         model_config (Dict[str, Any]): Configuration dictionary for the model.
+        peft_config (Dict[str, Any]): Configuration dictionary for PEFT/LoRA.
 
     Returns:
-        Tuple[LlavaOnevisionForConditionalGeneration, PreTrainedProcessor]: The loaded model and processor.
+        Tuple[PeftModel, PreTrainedProcessor]: The loaded PEFT-enabled model and processor.
     """
     model_id = model_config['pretrained_model_path']
 
-    model = LlavaOnevisionForConditionalGeneration.from_pretrained(
+    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
         model_id,
         torch_dtype=getattr(torch, model_config['torch_dtype']),
         attn_implementation='flash_attention_2' if model_config['use_flash_attention_2'] else 'sdpa',
@@ -65,10 +68,22 @@ def load_model_and_processor(model_config: Dict[str, Any]):
     )
 
     # Freeze the vision tower to save memory and computation
-    model.base_model.vision_tower.requires_grad_(False)
+    model.model.visual.requires_grad_(False)
+
+    # NEW: Create and apply LoRA configuration
+    print("Applying LoRA configuration...")
+    lora_config = peft_config
+
+    model = get_peft_model(model, lora_config)
+
+    # NEW: Print trainable parameters to verify LoRA is active
+    # This should show a very small percentage of trainable parameters.
+    model.print_trainable_parameters()
 
     processor = AutoProcessor.from_pretrained(model_id)
     processor.tokenizer.padding_side = "left"
+    # image_token_id = processor.tokenizer.additional_special_tokens_ids[
+    #     processor.tokenizer.additional_special_tokens.index("<image>")]
 
     return model, processor
 
@@ -107,28 +122,22 @@ def main():
     Main function to orchestrate the model training pipeline.
     """
 
-    parser = argparse.ArgumentParser(description="Train a Llava model using either SFT or GRPO.")
-
-    parser.add_argument(
-        '--config', type=str, default='norm',
-        help="config file to use: 'norm' or 'llavacot'..."
-    )
-    args = parser.parse_args()
-    config_select = args.config
-
-    if config_select == 'norm':
-        from config import CONFIG
-    elif config_select == 'llavacot':
-        from config_llavacot import CONFIG
-    elif config_select == 'low':
-        from config_low import CONFIG
-
     # 1. Load Configurations
     model_config = CONFIG['model']
     training_config = CONFIG['training']
     rl_config = CONFIG['rl']
     client_config = CONFIG['client']
     dataset_config = CONFIG['dataset']
+    peft_config = LoraConfig(
+        r=64,
+        lora_alpha=128,
+        lora_dropout=0.05,
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+        use_rslora=True,
+        bias="none",
+        task_type="CAUSAL_LM",
+    )
+
     task = training_config['task']
 
     # 2. Setup Environment
@@ -136,7 +145,8 @@ def main():
     device_id = accelerator.process_index
 
     # 3. Initialize Model and Processor
-    model, processor = load_model_and_processor(model_config)
+    # NEW: Pass peft_config to the loading function
+    model, processor = load_model_and_processor(model_config, peft_config)
 
     # 4. Prepare Datasets
     train_dataset, eval_dataset = prepare_datasets(task, dataset_config)
@@ -153,7 +163,7 @@ def main():
     collate_fn_with_processor = partial(collate_fn, processor=processor)
     # 7. Initialize the Trainer
     dyme_trainer = DyMETrainer(
-        model=model,
+        model=model,  # NEW: This is now a PeftModel
         checker=checker,
         refiner=refiner,
         args=training_args,
@@ -170,10 +180,16 @@ def main():
 
     output_dir = training_args.output_dir
     output_dir = os.path.join(output_dir, "final_checkpoint")
+
+    # NEW: save_model will now save only the LoRA adapter weights
     dyme_trainer.save_model(output_dir)
+
     # 确保只有主进程保存 processor 等非模型文件
     if accelerator.is_main_process:
         processor.save_pretrained(output_dir)
-        print(f"Model and processor saved to {output_dir}")
+        # NEW: The saved model is just the adapter, not the full model.
+        print(f"LoRA adapter and processor saved to {output_dir}")
+
+
 if __name__ == "__main__":
     main()
