@@ -6,7 +6,7 @@ import os
 from copy import deepcopy
 from tqdm import tqdm
 import sys
-sys.path.append('/apdcephfs_qy4/share_302593112/realzliu/code/DyME')
+sys.path.append('/path/to/code/DyME')
 from client_utils.openai_api import OpenAIClient
 from data_utils.chart.prompts import prompt_refine
 from data_utils.commom_util import prompt_ic
@@ -111,8 +111,8 @@ def process_item_worker(item):
 def main():
     # 包含了端口和服务器数量信息的配置
     from config import CLIENT_CONFIG
-    input_filename = '/chartqa_output/json/train_new.json'
-    output_filename = '/chartqa_output/json/train_new_prerefine.json'
+    input_filename = '/path/to/chartqa_output/json/train_new.json'
+    output_filename = '/path/to/chartqa_output/json/train_new_prerefine.json'
 
     NUM_PROCESSES = 64
     print(f"将使用 {NUM_PROCESSES} 个进程，并向 {CLIENT_CONFIG['num_server']} 个服务器分发请求...")

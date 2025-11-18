@@ -50,8 +50,8 @@ def prepare_chart_rl_data(json_path: str) -> List[Dict[str, Any]]:
 
             image = new_entry.get('image', '')
             if not os.path.exists(image):
-                image = image.replace('/chartqa_output/',
-                                      '/apdcephfs_nj4/share_300377003/realzliu/data/chartqa_output/')
+                image = image.replace('/path/to/chartqa_output/',
+                                      '/path/to/chartqa_output/')
                 new_entry['image'] = image
             # Format the prompt using an f-string.
             new_entry['prompt'] = PROMPT_TEMPLATE.format(question=new_entry['question'])
@@ -114,7 +114,6 @@ def prepare_chart_sft_data(json_path: str) -> List[Dict[str, Any]]:
 
 # --- Example of How to Use ---
 if __name__ == "__main__":
-    # Create a dummy JSON file for demonstration.
     dummy_data = [
         {"question": "What was the trend in 2022?", "answer": " The trend was upward. ", "human_or_machine": 0},
         {"question": "Which category was highest?", "answer": "Category A was highest.", "human_or_machine": 1},

@@ -3,7 +3,6 @@ import string
 from typing import Optional
 
 
-# adapted from https://github.com/mistralai/mistral-evals/blob/main/eval/tasks/chartqa.py
 def _normalize_string(s):
     if (s.startswith('"') and s.endswith('"')) or (
         s.startswith("'") and s.endswith("'")
