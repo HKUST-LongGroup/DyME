@@ -24,9 +24,7 @@ from peft import LoraConfig, get_peft_model, TaskType
 # ## --- LoRA 修改 End --- ##
 from transformers import AutoProcessor, AutoModelForCausalLM
 from trl import GRPOConfig
-
-# 假设这些是你项目中的本地模块
-from config_llm import CONFIG  # 假设LoRA配置也会在这里
+from config_llm import CONFIG  
 from data_utils.commom_util import collate_fn, define_task_data_func, collate_fn_woI
 from DyMETrainer_llm import DyMETrainer
 from reward_utils.checker import RewardCalculator, RewardCalculatorLocal

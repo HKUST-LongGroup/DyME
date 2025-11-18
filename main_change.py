@@ -173,7 +173,6 @@ def main():
     output_dir = training_args.output_dir
     output_dir = os.path.join(output_dir, "final_checkpoint")
     dyme_trainer.save_model(output_dir)
-    # 确保只有主进程保存 processor 等非模型文件
     if accelerator.is_main_process:
         processor.save_pretrained(output_dir)
         print(f"Model and processor saved to {output_dir}")

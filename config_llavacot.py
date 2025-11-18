@@ -3,7 +3,6 @@ import torch
 
 # ====== Model Configuration ======
 MODEL_CONFIG = {
-    # "pretrained_model_path": "llava-hf/llava-onevision-qwen2-0.5b-ov-hf",
     "pretrained_model_path": '/path/to/sft-llavaov-chart-llava_cot/checkpoint-802',  # two-stage grpo
     "use_flash_attention_2": True,
     "torch_dtype": "bfloat16",

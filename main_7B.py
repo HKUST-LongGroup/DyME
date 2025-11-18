@@ -184,7 +184,6 @@ def main():
     # NEW: save_model will now save only the LoRA adapter weights
     dyme_trainer.save_model(output_dir)
 
-    # 确保只有主进程保存 processor 等非模型文件
     if accelerator.is_main_process:
         processor.save_pretrained(output_dir)
         # NEW: The saved model is just the adapter, not the full model.

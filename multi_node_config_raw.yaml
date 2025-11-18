@@ -1,30 +1,24 @@
-# 这个文件需要存在于所有8台机器上
-
 compute_environment: LOCAL_MACHINE
-# 修复后的配置：使用标准的 DDP/MULTI_GPU 启动方式
-distributed_type: MULTI_GPU  # 核心修改：改为 MULTI_GPU 或 DDP
+distributed_type: MULTI_GPU  
 downcast_bf16: 'no'
 gpu_ids: all
-machine_rank: 0 # 这个值在启动时会被命令行参数覆盖，这里写0即可
-main_process_ip: 'xx.xx.xx.xx' # 您的主节点IP
-main_process_port: 36001          # 您提供的端口
+machine_rank: 0 
+main_process_ip: 'xx.xx.xx.xx' 
+main_process_port: 36001         
 main_training_function: main
 mixed_precision: 'bf16'
-num_machines: 2                   # 您的机器总数
-# 假设每台机器有8个GPU (8台 * 8个GPU = 64个进程)
+num_machines: 2                  
 num_processes: 16
 rdzv_backend: static
 same_network: true
 tpu_use_cluster: false
 tpu_use_sudo: false
 use_cpu: false
-
-# 新增: 添加deepspeed_config部分来配置ZeRO-2
 deepspeed_config:
   zero_stage: 2
   gradient_accumulation_steps: 1
   gradient_clipping: "auto"
-  offload_optimizer_device: "cpu" # 推荐：将优化器状态卸载到CPU以节省GPU内存
+  offload_optimizer_device: "cpu"
   offload_param_device: "cpu"
   zero3_init_flag: false
   zero3_save_16bit_model: "auto"
