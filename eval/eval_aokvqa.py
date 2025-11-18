@@ -24,7 +24,7 @@ model_args = {}  # Use {"torch_dtype":torch.bfloat16} if desired and supported
 # --- 您的模型 ID 列表保持不变 ---
 # ... (model_id 定义) ...
 model_id = 'llava-hf/llava-onevision-qwen2-0.5b-ov-hf'
-# model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-aok-local/final_checkpoint'
+# model_id = '/path/to/dyme-aok-local/final_checkpoint'
 # --- ---------------------- ---
 
 config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)

@@ -19,44 +19,44 @@ DEVICE = accelerator.device
 # Model and Processor Configuration
 model_args = {}  # Use {"torch_dtype":torch.bfloat16} if desired and supported
 
-## 这个是DyME后的llava，使用/apdcephfs_nj4/share_300377003/realzliu/data/chartqa_output/json/train_new_prerefine.json 这个数据
+## 这个是DyME后的llava，使用/path/to/data/chartqa_output/json/train_new_prerefine.json 这个数据
 model_id = '/apdcephfs_qy4/share_302593112/realzliu/code/DyME/output/test/checkpoint-2900'
 model_id = '/apdcephfs_qy4/share_302593112/realzliu/code/DyME/output-dist/test/final_checkpoint'
 
-## 这个是sft后的llava，使用/apdcephfs_nj4/share_300377003/realzliu/data/chartqa_output/json/train_new_prerefine.json 这个数据
-# model_id = '/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart/checkpoint-400'
+## 这个是sft后的llava，使用/path/to/data/chartqa_output/json/train_new_prerefine.json 这个数据
+# model_id = '/path/to/sft-llavaov-chart/checkpoint-400'
 
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart-llava_cot/checkpoint-4010'
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-chart-llava/checkpoint-36'
+model_id = '/path/to/sft-llavaov-chart-llava_cot/checkpoint-4010'
+model_id = '/path/to/grpo-chart-llava/checkpoint-36'
 
-# model_id = '/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart-low/checkpoint-74'
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart-low/checkpoint-740'
+# model_id = '/path/to/sft-llavaov-chart-low/checkpoint-74'
+model_id = '/path/to/sft-llavaov-chart-low/checkpoint-740'
 
-# model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-llavaov-chart-llava_cot/checkpoint-300'
+# model_id = '/path/to/dyme-llavaov-chart-llava_cot/checkpoint-300'
 
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-llavaov-chart-low/checkpoint-1470'
+model_id = '/path/to/dyme-llavaov-chart-low/checkpoint-1470'
 
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-llavaov-chart/checkpoint-8000'
-# model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-chart-llava-beta/checkpoint-210'
+model_id = '/path/to/grpo-llavaov-chart/checkpoint-8000'
+# model_id = '/path/to/grpo-chart-llava-beta/checkpoint-210'
 #
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-llavaov-chart-beta/checkpoint-570'
-# model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-llavaov-chart-low-beta/checkpoint-882'
+model_id = '/path/to/grpo-llavaov-chart-beta/checkpoint-570'
+# model_id = '/path/to/grpo-llavaov-chart-low-beta/checkpoint-882'
 
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-llavaov-chart-low/checkpoint-126'
-# model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-llavaov-chart-low-beta'
+model_id = '/path/to/grpo-llavaov-chart-low/checkpoint-126'
+# model_id = '/path/to/grpo-llavaov-chart-low-beta'
 
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-llavaov-chart-low/checkpoint-420'
+model_id = '/path/to/grpo-llavaov-chart-low/checkpoint-420'
 
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-llavaov-chart-change1-09/final_checkpoint'
+model_id = '/path/to/dyme-llavaov-chart-change1-09/final_checkpoint'
 
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-llavaov-chart-change2/final_checkpoint'
+model_id = '/path/to/dyme-llavaov-chart-change2/final_checkpoint'
 
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-llavaov-chart-change3/final_checkpoint'
+model_id = '/path/to/dyme-llavaov-chart-change3/final_checkpoint'
 
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-k-16/checkpoint-108'
+model_id = '/path/to/dyme-k-16/checkpoint-108'
 
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-k-8/final_checkpoint'
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-k-16/checkpoint-882'
+model_id = '/path/to/dyme-k-8/final_checkpoint'
+model_id = '/path/to/dyme-k-16/checkpoint-882'
 config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
 tokenizer = AutoTokenizer.from_pretrained(model_id, config=config, trust_remote_code=True)
 model = LlavaOnevisionForConditionalGeneration.from_pretrained(

@@ -1,4 +1,3 @@
-# Import necessary libraries
 import time
 
 import httpx

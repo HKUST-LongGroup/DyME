@@ -15,7 +15,7 @@ TRAINING_CONFIG = {
     "num_client": 8,  # 并发客户端数量，通常与 GPU 数量相同
     # RL阶段的参数 (根据原脚本的rl_args)
     "dyme_args": {
-        "output_dir": '/apdcephfs_nj4/share_300377003/realzliu/dyme-llavaov-chart-change3',
+        "output_dir": '/path/to/dyme-llavaov-chart-change3',
         "logging_steps": 1,
         "num_generations": 4,  # norm 4; 5 for sft hybrid
         "max_completion_length": 200,
@@ -55,7 +55,7 @@ CLIENT_CONFIG = {
 # ====== Dataset Configuration ======
 DATASET_CONFIG = {
     # "train_dataset": "/chartqa_output/json/train_new_prerefine.json",  # 训练数据路径
-    "train_dataset": "/apdcephfs_nj4/share_300377003/realzliu/data/chartqa_output/json/train_new_prerefine.json",
+    "train_dataset": "/path/to/data/chartqa_output/json/train_new_prerefine.json",
     # 训练数据路径
     "eval_dataset": "HuggingFaceM4/ChartQA",  # 验证数据路径
 }

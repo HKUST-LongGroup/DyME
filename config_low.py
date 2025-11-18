@@ -3,7 +3,7 @@ import torch
 
 # ====== Model Configuration ======
 MODEL_CONFIG = {
-    "pretrained_model_path": "/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart-low/checkpoint-296", ###anony¥¥
+    "pretrained_model_path": "/path/to/sft-llavaov-chart-low/checkpoint-296", ###anony¥¥
     "use_flash_attention_2": True,
     "torch_dtype": "bfloat16",
 }
@@ -15,7 +15,7 @@ TRAINING_CONFIG = {
     "num_client": 8,  # 并发客户端数量，通常与 GPU 数量相同
     # RL阶段的参数 (根据原脚本的rl_args)
     "dyme_args": {
-        "output_dir": '/apdcephfs_nj4/share_300377003/realzliu/dyme-llavaov-chart-low', ###anony¥¥
+        "output_dir": '/path/to/dyme-llavaov-chart-low', ###anony¥¥
         "logging_steps": 1,
         "num_generations": 4,  # RL 阶段可以生成多个响应进行比较
         "max_completion_length": 300,
@@ -35,7 +35,7 @@ TRAINING_CONFIG = {
         "seed": 42,
     },
     "sft_args": {
-        "output_dir": '/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart-low', ###anony¥¥
+        "output_dir": '/path/to/sft-llavaov-chart-low', ###anony¥¥
         "logging_steps": 1,
         "per_device_train_batch_size": 2,
         "gradient_accumulation_steps": 4,
@@ -54,7 +54,7 @@ TRAINING_CONFIG = {
         "remove_unused_columns": False
     },
     "grpo_args":{
-        "output_dir": '/apdcephfs_nj4/share_300377003/realzliu/grpo-llavaov-chart-low', ###anony¥¥
+        "output_dir": '/path/to/grpo-llavaov-chart-low', ###anony¥¥
         "logging_steps": 1,
         "num_generations": 4,  # RL 阶段可以生成多个响应进行比较
         "max_completion_length": 576,
@@ -95,7 +95,7 @@ CLIENT_CONFIG = {
 
 # ====== Dataset Configuration ======
 DATASET_CONFIG = {
-    "train_dataset": "/apdcephfs_nj4/share_300377003/realzliu/data/chartqa_output/json/train_low.json",  ###anony¥¥
+    "train_dataset": "/path/to/data/chartqa_output/json/train_low.json",  ###anony¥¥
     # 训练数据路径
     "eval_dataset": "HuggingFaceM4/ChartQA",  # 验证数据路径
 }

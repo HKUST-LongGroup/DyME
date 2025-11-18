@@ -13,7 +13,7 @@ def save_gsm8k_as_json(base_output_dir="/gsm8k_output"):
     # 1. 定义输出目录
     # gsm8k 是纯文本，所以我们只需要一个 json 目录
     base_dir_abs = os.path.abspath(base_output_dir)
-    json_output_dir = '/apdcephfs_nj4/share_300377003/realzliu/data/lm_math/json_new'
+    json_output_dir = '/path/to/data/lm_math/json_new'
 
     # 2. 创建目录
     os.makedirs(json_output_dir, exist_ok=True)

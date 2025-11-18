@@ -53,8 +53,8 @@ model_args = {"torch_dtype": torch.bfloat16}  # 保持 bf16 以获得高性能
 
 # 切换为 Qwen 2.5 0.5B Instruct
 # model_id = 'Qwen/Qwen2.5-0.5B-Instruct'
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-qwen25-GSM8K-new/checkpoint-466'
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-qwen25-GSM8K-new/checkpoint-2097'
+model_id = '/path/to/dyme-qwen25-GSM8K-new/checkpoint-466'
+model_id = '/path/to/dyme-qwen25-GSM8K-new/checkpoint-2097'
 
 
 if accelerator.is_main_process:

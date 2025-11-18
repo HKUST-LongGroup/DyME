@@ -20,7 +20,7 @@ DEVICE = accelerator.device
 model_args = {}  # Use {"torch_dtype":torch.bfloat16} if desired and supported
 
 
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-qwen25_7B-chart-llava_cot/checkpoint-3200'
+model_id = '/path/to/dyme-qwen25_7B-chart-llava_cot/checkpoint-3200'
 
 config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
 tokenizer = AutoTokenizer.from_pretrained(model_id, config=config, trust_remote_code=True)

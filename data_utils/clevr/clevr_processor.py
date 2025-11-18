@@ -248,7 +248,7 @@ def main():
         "rex_path": "IDEA-Research/Rex-Omni",
         "qwen_path": "Qwen/Qwen2.5-VL-32B-Instruct-AWQ"
     }
-    OUTPUT_DIR = "/apdcephfs_nj4/share_300377003/realzliu/data/clevr_cogent_output"
+    OUTPUT_DIR = "/path/to/data/clevr_cogent_output"
     IMAGE_OUTPUT_DIR = os.path.join(OUTPUT_DIR, "images")
     JSON_OUTPUT_DIR = os.path.join(OUTPUT_DIR, "json")
 

@@ -51,7 +51,7 @@ def prepare_world_rl_data(json_path: str) -> List[Dict[str, Any]]:
             image = new_entry.get('image', '')
             if not os.path.exists(image):
                 image = image.replace('/chartqa_output/',
-                                      '/apdcephfs_nj4/share_300377003/realzliu/data/chartqa_output/')
+                                      '/path/to/data/chartqa_output/')
                 new_entry['image'] = image
             # Format the prompt using an f-string.
             new_entry['prompt'] = PROMPT_TEMPLATE.format(question=new_entry['question'])
@@ -104,7 +104,7 @@ def prepare_world_dyme_data(json_path: str) -> List[Dict[str, Any]]:
             image = new_entry.get('image', '')
             if not os.path.exists(image):
                 image = image.replace('/chartqa_output/',
-                                      '/apdcephfs_nj4/share_300377003/realzliu/data/chartqa_output/')
+                                      '/path/to/data/chartqa_output/')
                 new_entry['image'] = image
             # Format the prompt using an f-string.
             new_entry['prompt'] = PROMPT_TEMPLATE.format(question=new_entry['question'])

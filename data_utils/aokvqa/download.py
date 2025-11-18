@@ -273,4 +273,4 @@ if __name__ == "__main__":
     multiprocessing.set_start_method("spawn", force=True)
 
     # 更改为您希望的输出目录
-    save_aokvqa_with_facts(base_output_dir="/apdcephfs_nj4/share_300377003/realzliu/data/aokvqa")
+    save_aokvqa_with_facts(base_output_dir="/path/to/data/aokvqa")

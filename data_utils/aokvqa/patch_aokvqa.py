@@ -95,7 +95,7 @@ def patch_json_with_direct_answers(base_output_dir):
 
 if __name__ == "__main__":
     # *** 确保此路径与您原始脚本中使用的路径一致 ***
-    data_directory = "/apdcephfs_nj4/share_300377003/realzliu/data/aokvqa"
+    data_directory = "/path/to/data/aokvqa"
 
     print(f"目标根目录: {data_directory}")
     patch_json_with_direct_answers(base_output_dir=data_directory)
