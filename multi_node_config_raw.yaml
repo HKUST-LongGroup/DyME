@@ -1,13 +1,10 @@
-# 这个文件需要存在于所有8台机器上
-
 compute_environment: LOCAL_MACHINE
-# 修复后的配置：使用标准的 DDP/MULTI_GPU 启动方式
 distributed_type: MULTI_GPU  # 核心修改：改为 MULTI_GPU 或 DDP
 downcast_bf16: 'no'
 gpu_ids: all
-machine_rank: 0 # 这个值在启动时会被命令行参数覆盖，这里写0即可
-main_process_ip: '30.203.137.30' # 您的主节点IP
-main_process_port: 36001          # 您提供的端口
+machine_rank: 0
+main_process_ip: 'XX.XX.XX.XX' # 您的主节点IP,需要替换
+main_process_port: XX          # 您提供的端口,需要替换
 main_training_function: main
 mixed_precision: 'bf16'
 num_machines: 8                   # 您的机器总数
