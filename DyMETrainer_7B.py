@@ -968,15 +968,6 @@ class DyMETrainer(Trainer):
         self._metrics[mode].clear()
 
         if self.accelerator.is_main_process and self.log_completions:
-            # if is_rich_available():
-            #     print_prompt_completions_sample(
-            #         self._textual_logs["prompt"],
-            #         self._textual_logs["completion"],
-            #         self._textual_logs["rewards"],
-            #         self.state.global_step,
-            #         self.num_completions_to_print,
-            #     )
-
             if self.args.report_to and "wandb" in self.args.report_to and wandb.run is not None:
                 import pandas as pd
 

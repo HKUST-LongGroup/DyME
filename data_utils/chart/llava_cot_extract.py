@@ -123,7 +123,6 @@ if __name__ == "__main__":
 
     # --- 如何运行 ---
     # 1. 设置您在第一步中解压图像的文件夹的路径
-    #    这个路径应该指向 unzipped_images 文件夹
     SOURCE_IMAGES_ROOT_DIR = "/path/to/chartqa_output/llavacot/LLaVA-CoT-100k/unzipped_images"
 
     # 2. 设置您希望保存处理后数据的输出目录

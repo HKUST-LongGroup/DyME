@@ -57,7 +57,7 @@ def setup_accelerator_and_wandb(bf16) -> Accelerator:
     Returns:
         Accelerator: The configured accelerator instance.
     """
-    wandb.login(key="a07e39e43f1a318a12a9b43a73d79d6ad4f4d2e2")
+    wandb.login(key="YOUR_WANDB_API")
     if bf16:
         accelerator = Accelerator(mixed_precision="bf16", log_with="wandb")
     else:

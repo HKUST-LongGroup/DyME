@@ -51,8 +51,6 @@ DEVICE = accelerator.device
 # --- 模型和 Tokenizer 配置 ---
 model_args = {"torch_dtype": torch.bfloat16}  # 保持 bf16 以获得高性能
 
-# 切换为 Qwen 2.5 0.5B Instruct
-# model_id = 'Qwen/Qwen2.5-0.5B-Instruct'
 model_id = '/path/to/dyme-qwen25-GSM8K-new/checkpoint-466'
 model_id = '/path/to/dyme-qwen25-GSM8K-new/checkpoint-2097'
 

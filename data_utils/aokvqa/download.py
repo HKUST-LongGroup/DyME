@@ -15,7 +15,6 @@ Image.MAX_IMAGE_PIXELS = None
 
 # --- API 和 MLLM 提示词配置 ---
 
-# 1. 定义您的8个API端口
 API_PORTS = list(range(23333, 23333 + 8))
 API_URL_TEMPLATE = "http://127.0.0.1:{port}/v1/"
 
@@ -151,8 +150,7 @@ def process_example_worker(example_with_index, split, image_output_dir, api_port
                 pass  # hint 保持为 None
 
         # --- (D) 结束提取 ---
-
-        # 2. 生成唯一的、绝对的图像路径
+        # 2. 生成并保存图像文件名
         generated_filename = f"{split}_{i:07d}.png"
         image_save_path = os.path.join(image_output_dir, generated_filename)
 

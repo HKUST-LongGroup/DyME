@@ -872,10 +872,6 @@ class DyMETrainer(Trainer):
 
         # sft_loss = -(per_token_logps * completion_mask).sum(-1) / completion_mask.sum(-1)
         advantages = inputs["advantages"][:, 0]
-        # sft_loss = (sft_loss * (advantages > 0)).sum() * (has_correct == 0)
-        # return sft_loss
-        # When using num_iterations == 1, old_per_token_logps == per_token_logps, so we can skip it's computation (see
-        # _generate_and_score_completions) and use per_token_logps.detach() instead.
         old_per_token_logps = inputs["old_per_token_logps"] if self.num_iterations > 1 else per_token_logps.detach()
         coef_1 = torch.exp(per_token_logps - old_per_token_logps)
         coef_2 = torch.clamp(coef_1, 1 - self.epsilon_low, 1 + self.epsilon_high)
@@ -940,14 +936,6 @@ class DyMETrainer(Trainer):
         self._metrics[mode].clear()
 
         if self.accelerator.is_main_process and self.log_completions:
-            # if is_rich_available():
-            #     print_prompt_completions_sample(
-            #         self._textual_logs["prompt"],
-            #         self._textual_logs["completion"],
-            #         self._textual_logs["rewards"],
-            #         self.state.global_step,
-            #         self.num_completions_to_print,
-            #     )
 
             if self.args.report_to and "wandb" in self.args.report_to and wandb.run is not None:
                 import pandas as pd

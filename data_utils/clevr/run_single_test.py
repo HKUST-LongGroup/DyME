@@ -34,7 +34,6 @@ except ImportError:
 
     RexOmniWrapper = DummyRex
 
-# 导入 qwen_vl_utils (如果可用)
 try:
     from qwen_vl_utils import process_vision_info
 except ImportError:
@@ -50,8 +49,6 @@ except ImportError:
                         images.append(content['image'])
         return images, None
 
-# *** 从 clevr_processor.py 导入静态辅助函数 ***
-# 确保 clevr_processor.py 在您的 Python 路径中 (或在同一目录中)
 from clevr_processor import ClevrFactExtractor, _strip_tags
 
 
@@ -88,10 +85,8 @@ def run_test(configs, paths, gpu_id=0, sample_index=0):
         print(f"模型加载失败: {e}")
         return
 
-    # --- 2. 加载数据样本 ---
     print("正在加载数据集元数据...")
     try:
-        # 使用流式传输只获取一个样本，避免下载整个数据集
         dataset = load_dataset("MMInstruction/Clevr_CoGenT_TrainA_R1", split='train', streaming=True)
         example_iter = iter(dataset)
         for _ in range(sample_index + 1):
@@ -103,7 +98,6 @@ def run_test(configs, paths, gpu_id=0, sample_index=0):
 
     print(f"正在处理样本 {sample_index}...")
 
-    # --- 3. 运行流水线 (模拟主进程的预处理) ---
     try:
         # 1. 预处理
         prompt = example['problem']

@@ -45,7 +45,7 @@ RL_CONFIG = {
 CLIENT_CONFIG = {
     "client_type": "openai",  # 客户端主机地址
     "api_key": "none",  # 客户端主机
-    "api_base": "http://29.39.226.175:%s/v1",  # 客户端，如果是本地服务需要预留端口
+    "api_base": "http://127.0.0.1:%s/v1",  # 客户端，如果是本地服务需要预留端口
     "timeout": 60,  # 请求超时时间
     "model_id": "Qwen/Qwen2.5-14B-Instruct-AWQ",  # 使用的模型ID
     "init_port": 23333, # 或者none代表在线服务
@@ -54,7 +54,6 @@ CLIENT_CONFIG = {
 
 # ====== Dataset Configuration ======
 DATASET_CONFIG = {
-    # "train_dataset": "/chartqa_output/json/train_new_prerefine.json",  # 训练数据路径
     "train_dataset": "/path/to/data/chartqa_output/json/train_new_prerefine.json",
     # 训练数据路径
     "eval_dataset": "HuggingFaceM4/ChartQA",  # 验证数据路径

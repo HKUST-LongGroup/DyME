@@ -885,14 +885,7 @@ class DyMETrainer(Trainer):
             self.sft_replay_buffer = []
             rank = self.accelerator.process_index
             num_processes = self.accelerator.num_processes
-
-            # 现在 global_sft_json_strings 是一个干净的、完整的JSON字符串列表
             my_local_input = global_sft_input[rank::num_processes]
-            # if self.accelerator.device.index == 0:
-            #     if len(my_local_input) == 0:
-            #         print(None, len(my_local_input), self.sft_pool_trigger_size)
-            #     else:
-            #         print(my_local_input[0], len(my_local_input), self.sft_pool_trigger_size)
 
             assert my_local_input, f"Rank {self.accelerator.process_index} 在JSON解码后数据为空！"
             # --- 4. Local collate ---

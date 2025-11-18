@@ -6,7 +6,7 @@ import os
 from copy import deepcopy
 from tqdm import tqdm
 import sys
-sys.path.append('/apdcephfs_qy4/share_302593112/realzliu/code/DyME')
+sys.path.append('/path/to/code/DyME')
 from client_utils.openai_api import OpenAIClient
 from data_utils.chart.prompts import prompt_refine
 from data_utils.commom_util import prompt_ic
@@ -31,7 +31,6 @@ Conclusion: [State the final answer clearly.]
             raise ValueError(f"Client type '{CLIENT_CONFIG['client_type']}' not supported.")
 
     def refine_hint(self, question: str, hint: str, reference_answer: str, task: str):
-        # ... 此处方法体与之前完全相同，省略以保持简洁 ...
         if not hint:
             return hint
         system_prompt = None

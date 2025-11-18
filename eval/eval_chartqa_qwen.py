@@ -40,9 +40,6 @@ processor = AutoProcessor.from_pretrained(model_id, min_pixels=MIN_PIXELS, max_p
 # Configure image processor size
 # This can consume significant VRAM. Ensure it's intended.
 if hasattr(processor.image_processor, 'size') and isinstance(processor.image_processor.size, dict):
-    # if 'longest_edge' in processor.image_processor.size:
-    #     print('Setting image processor longest_edge to 2048')
-    #     processor.image_processor.size['longest_edge'] = 512 * 4
     processor.tokenizer.padding_side = 'left'
 else:
     print(
@@ -133,19 +130,11 @@ if task == 'chart':
         if accelerator.is_main_process:
             print(f"Failed to load dataset directly. Error: {e}")
             print("Attempting to load with specific revision if applicable, or check path/connection.")
-        # 作为示例，您可以尝试特定版本（如果知道）或确保路径和网络连接正确
-        # full_dataset = load_dataset("HuggingFaceM4/ChartQA", revision="main", trust_remote_code=True)['test']
-        raise  # 重新抛出异常，因为没有数据集无法继续
+        raise
 
     # full_dataset = full_dataset.select(range(80)) # 取消注释以进行快速测试
 
     eval_datasets_all_prepared = []
-    # chart_instructions_prefix = (
-    #         "For the question below, follow the following instructions:\n"
-    #         # ... (您的详细指令) ...
-    #         + "-Try to include the full label from the graph when asked about an entity.\n"
-    #         + "Question: "
-    # )
 
     for d_item in tqdm(full_dataset, desc="Preparing dataset", disable=not accelerator.is_main_process):
         image_path = d_item['image']
@@ -184,11 +173,6 @@ if task == 'chart':
         BATCH_SIZE = 32  # 根据您的 VRAM 调整
         REPORT_INTERVAL_BATCHES = 1  # 每处理 N 个本地批次后报告一次（主进程将打印全局统计）
 
-        # if accelerator.is_main_process:
-        #     print(f"Total items for evaluation: {total_items}")
-        #     print(f"Process {process_index} handling {len(eval_datasets_local)} items.")
-        #     print(f"Batch size per process: {BATCH_SIZE}, Reporting interval: {REPORT_INTERVAL_BATCHES} local batches.")
-
         pbar = None
         if accelerator.is_main_process and len(eval_datasets_local) > 0:  # 仅当有数据时创建 pbar
             pbar = tqdm(total=len(eval_datasets_local), desc=f"Eval Proc {process_index}", dynamic_ncols=True)
@@ -224,7 +208,6 @@ if task == 'chart':
             if pbar:
                 pbar.update(len(current_batch_list))
 
-            # --- 中间报告逻辑 ---
             is_last_local_batch = (batch_idx_local == num_local_batches - 1)
             # 每隔 REPORT_INTERVAL_BATCHES 个本地批次，或在当前进程的最后一个本地批次时，执行同步和报告
             should_sync_and_report = ((batch_idx_local + 1) % REPORT_INTERVAL_BATCHES == 0) or is_last_local_batch

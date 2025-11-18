@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 from accelerate.utils import gather_object
 
-# --- 关键修复 1: PytorchGELUTanh 猴子补丁 (主进程) ---
 try:
     from transformers import activations
 
@@ -321,7 +320,6 @@ def main():
         traceback.print_exc()
         return
 
-    # --- ★★★ 优化点 3: 引入 RexOmni 批处理 (修改主循环) ★★★ ---
 
     # 1. 定义一个批处理大小 (Batch Size)
     REX_BATCH_SIZE = 16  # <-- 根据你的 VRAM 调整这个值
