@@ -7,8 +7,8 @@ try:
 
     activations.PytorchGELUTanh = activations.GELUTanh
 except ImportError:
-    print("注意: 无法应用 PytorchGELUTanh 补丁。如果遇到 ImportError，请检查 transformers 版本。")
-# --- 补丁结束 ---
+    print("Note: Unable to apply PytorchGELUTanh patch. If you encounter an ImportError, please check the transformers version.")
+# --- End of patch ---
 
 import os
 import shutil
@@ -21,11 +21,11 @@ from datasets import load_dataset
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from accelerate import Accelerator
 
-# (qwen_vl_utils 导入和回退保持不变)
+# (qwen_vl_utils import and fallback remain unchanged)
 try:
     from qwen_vl_utils import process_vision_info
 except ImportError:
-    print("警告: 无法导入 'qwen_vl_utils.process_vision_info'。")
+    print("Warning: Failed to import 'qwen_vl_utils.process_vision_info'.")
 
 
     def process_vision_info(messages):
@@ -35,29 +35,29 @@ except ImportError:
                 for content in msg['content']:
                     if content['type'] == 'image':
                         images.append(content['image'])
-        return images, None  # 返回 (images, videos)
+        return images, None  # Return (images, videos)
 
 Image.MAX_IMAGE_PIXELS = None
 
-# (RexOmni 依赖和 DummyRex 保持不变)
+# (RexOmni dependency and DummyRex remain unchanged)
 try:
     from rex_omni import RexOmniWrapper
 except ImportError:
-    print("警告: 'from rex_omni import RexOmniWrapper' 失败。")
-    print("将使用一个虚拟的 RexOmniWrapper (DummyRex) 仅供测试。")
+    print("Warning: 'from rex_omni import RexOmniWrapper' failed.")
+    print("Using a dummy RexOmniWrapper (DummyRex) for testing only.")
 
 
     class DummyRex:
         def __init__(self, *args, **kwargs):
-            print("INFO: DUMMY: 正在使用 DummyRex 检测器。")
+            print("INFO: DUMMY: Using DummyRex detector.")
 
         def inference(self, images, task, categories, **kwargs):
-            print("INFO: DUMMY: DummyRex 正在返回伪造的中心框。")
+            print("INFO: DUMMY: DummyRex returning fake center boxes.")
 
-            # 支持批处理的 Dummy
+            # Batch-supporting Dummy
             results = []
 
-            # 确保 images 是一个列表
+            # Ensure images is a list
             if not isinstance(images, list):
                 images = [images]
 
@@ -76,7 +76,7 @@ except ImportError:
 
 
 def _strip_tags(text, tag_name):
-    # (保持不变)
+    # (unchanged)
     if not isinstance(text, str):
         text = str(text)
     text = re.sub(rf'<{tag_name}>', '', text, flags=re.IGNORECASE)
@@ -84,10 +84,10 @@ def _strip_tags(text, tag_name):
     return text.strip()
 
 
-# --- 核心 VQA 辅助函数 (移至全局) ---
+# --- Core VQA helper functions (moved to global scope) ---
 
 def _crop_and_expand_box(image, box, padding_pixels=20):
-    # (保持不变)
+    # (unchanged)
     x0, y0, x1, y1 = [int(c) for c in box]
     img_w, img_h = image.size
     x0_new = max(0, x0 - padding_pixels)
@@ -97,10 +97,10 @@ def _crop_and_expand_box(image, box, padding_pixels=20):
     return image.crop((x0_new, y0_new, x1_new, y1_new))
 
 
-# --- ★★★ 优化点 1: 将 VQA 查询改为批处理 ★★★ ---
+# --- ★★★ Optimization 1: Change VQA queries to batched processing ★★★ ---
 def _query_qwen_vl_BATCH(crop_images_list, model, processor, accelerator):
     """
-    使用 Qwen-VL 批量查询裁剪后的图像块，并返回 JSON 字符串列表。
+    Use Qwen-VL to query cropped image patches in batch and return a list of JSON strings.
     """
     if not crop_images_list:
         return []
@@ -114,19 +114,19 @@ Respond *strictly* with a JSON list (containing one dictionary) in the following
 - "attributes": A list of visual attributes (e.g., ["blue", "large", "metal", "shiny", "rubber"]).
 Provide only the JSON list:"""
 
-    # 1. 为批处理中的每个图像创建消息
+    # 1. Create messages for each image in the batch
     template_messages = [
         {
             "role": "user",
             "content": [
-                {"type": "image", "image": "placeholder.jpg"},  # 占位符
+                {"type": "image", "image": "placeholder.jpg"},  # Placeholder
                 {"type": "text", "text": prompt},
             ],
         }
     ]
 
     try:
-        # 2. 生成一次聊天提示文本
+        # 2. Generate chat prompt text once
         chat_prompt_text = processor.apply_chat_template(
             template_messages, tokenize=False, add_generation_prompt=True
         )
@@ -137,22 +137,22 @@ Provide only the JSON list:"""
 
         unwrapped_model = accelerator.unwrap_model(model)
 
-        # 3. 使用文本列表和图像列表进行批处理
+        # 3. Use text list and image list for batched processing
         inputs = processor(
             text=batch_text,
             images=batch_images,
-            padding=True,  # 关键：启用填充以处理批处理
+            padding=True,  # Important: enable padding to handle batching
             return_tensors="pt",
         ).to(unwrapped_model.device)
 
-        # 4. 批量生成
+        # 4. Batch generation
         generated_ids = unwrapped_model.generate(**inputs, max_new_tokens=256, do_sample=False)
 
         generated_ids_trimmed = [
             out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
         ]
 
-        # 5. 批量解码
+        # 5. Batch decode
         output_texts_list = processor.batch_decode(
             generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
         )
@@ -160,13 +160,13 @@ Provide only the JSON list:"""
         return output_texts_list
 
     except Exception as e:
-        print(f"Qwen-VL 批量推理失败: {e}")
-        # 返回一个空列表，其长度与输入批次相同，以防止 zip 错误
+        print(f"Qwen-VL batched inference failed: {e}")
+        # Return a list of empty JSON placeholders to avoid zip errors
         return ["[]"] * len(crop_images_list)
 
 
 def _parse_qwen_json(response_text):
-    # (保持不变)
+    # (unchanged)
     try:
         match = re.search(r'```json\s*(\[.*\])\s*```', response_text, re.DOTALL)
         if match:
@@ -178,36 +178,36 @@ def _parse_qwen_json(response_text):
             return json.loads(json_str)
         return []
     except json.JSONDecodeError:
-        print(f"JSON 解析失败: {response_text}")
+        print(f"Failed to parse JSON: {response_text}")
         return []
     except Exception as e:
-        print(f"JSON 解析时发生未知错误: {e}")
+        print(f"Unknown error occurred while parsing JSON: {e}")
         return []
 
 
 def _load_and_preprocess_data(base_output_dir, image_output_dir):
-    # (保持不变)
-    print("正在加载 'MMInstruction/Clevr_CoGenT_TrainA_R1'...")
+    # (unchanged)
+    print("Loading 'MMInstruction/Clevr_CoGenT_TrainA_R1'...")
     try:
         dataset = load_dataset("MMInstruction/Clevr_CoGenT_TrainA_R1", split='train')
     except Exception as e:
-        print(f"加载数据集 'MMInstruction/Clevr_CoGenT_TrainA_R1' 失败: {e}")
+        print(f"Failed to load dataset 'MMInstruction/Clevr_CoGenT_TrainA_R1': {e}")
         return []
 
-    # 只要前几行做测试 (此处仍为 100 条)
+    # Only use the first few samples for testing (still 100 here)
     # dataset = dataset.select(range(100))
-    print(f"已加载 {len(dataset)} 个样本。")
+    print(f"Loaded {len(dataset)} samples.")
 
     job_list = []
-    print("正在预处理数据（保存图像并解析文本）...")
-    for i, example in enumerate(tqdm(dataset, desc="预处理进度")):
+    print("Preprocessing data (saving images and parsing text)...")
+    for i, example in enumerate(tqdm(dataset, desc="Preprocessing progress")):
         prompt = example['problem']
         hint = _strip_tags(example['thinking'], 'think')
         answer = _strip_tags(example['solution'], 'answer')
 
         image = example['image']
         if not isinstance(image, Image.Image):
-            print(f"警告: 样本 {i} 不是一个 PIL 图像，已跳过。")
+            print(f"Warning: sample {i} is not a PIL image, skipped.")
             continue
 
         image_filename = f"clevr_cogent_trainA_r1_{i:07d}.jpg"
@@ -218,7 +218,7 @@ def _load_and_preprocess_data(base_output_dir, image_output_dir):
             if not os.path.exists(destination_image_path):
                 image.convert("RGB").save(destination_image_path, "JPEG")
         except Exception as e:
-            print(f"警告: 保存样本 {i} 的图像失败。已跳过。错误: {e}")
+            print(f"Warning: failed to save image for sample {i}, skipped. Error: {e}")
             continue
 
         job_list.append({
@@ -228,21 +228,21 @@ def _load_and_preprocess_data(base_output_dir, image_output_dir):
             "destination_image_path": destination_image_path
         })
 
-    print(f"成功预处理 {len(job_list)} 个项目。")
+    print(f"Successfully preprocessed {len(job_list)} items.")
 
     job_list_path = os.path.join(base_output_dir, "job_list.json")
     with open(job_list_path, 'w', encoding='utf-8') as f:
         json.dump(job_list, f)
 
-    print(f"作业列表已保存到: {job_list_path}")
+    print(f"Job list saved to: {job_list_path}")
     return job_list
 
 
 def main():
-    # (1. 初始化 Accelerator - 保持不变)
+    # (1. Initialize Accelerator - unchanged)
     accelerator = Accelerator()
 
-    # (0. 定义配置 - 保持不变)
+    # (0. Define configuration - unchanged)
     MODEL_CONFIGS = {
         "rex_path": "IDEA-Research/Rex-Omni",
         "qwen_path": "Qwen/Qwen2.5-VL-32B-Instruct-AWQ"
@@ -254,23 +254,23 @@ def main():
     os.makedirs(IMAGE_OUTPUT_DIR, exist_ok=True)
     os.makedirs(JSON_OUTPUT_DIR, exist_ok=True)
 
-    # (2. 预处理 (仅在主进程上运行) - 保持不变)
+    # (2. Preprocessing (run only on main process) - unchanged)
     job_list_path = os.path.join(OUTPUT_DIR, "job_list.json")
     if accelerator.is_main_process:
-        print("主进程 [Pre-processing]: 正在加载和预处理数据...")
+        print("Main process [Pre-processing]: loading and preprocessing data...")
         _load_and_preprocess_data(OUTPUT_DIR, IMAGE_OUTPUT_DIR)
 
-    # (3. 同步 - 保持不变)
+    # (3. Synchronization - unchanged)
     accelerator.wait_for_everyone()
 
-    # (4. 加载并分发作业 - 保持不变)
+    # (4. Load and distribute jobs - unchanged)
     if not accelerator.is_main_process:
-        print(f"进程 {accelerator.process_index}: 正在加载 job_list.json...")
+        print(f"Process {accelerator.process_index}: loading job_list.json...")
     try:
         with open(job_list_path, 'r', encoding='utf-8') as f:
             all_jobs = json.load(f)
     except Exception as e:
-        print(f"进程 {accelerator.process_index} 加载 job_list.json 失败: {e}")
+        print(f"Process {accelerator.process_index} failed to load job_list.json: {e}")
         return
     total_jobs = len(all_jobs)
     num_processes = accelerator.num_processes
@@ -281,9 +281,9 @@ def main():
         end_index = total_jobs
     my_jobs = all_jobs[start_index:end_index]
     print(f"[Process {accelerator.process_index}]:"
-          f" 已分配 {len(my_jobs)} 个作业 (索引从 {start_index} 到 {end_index})。")
+          f" assigned {len(my_jobs)} jobs (indices from {start_index} to {end_index}).")
 
-    # (5. 加载模型 (每个进程加载自己的副本) - 保持不变)
+    # (5. Load models (each process loads its own copy) - unchanged)
     try:
         try:
             from transformers import activations
@@ -291,7 +291,7 @@ def main():
         except ImportError:
             pass
 
-        print(f"[Process {accelerator.process_index}]: 正在加载 RexOmni...")
+        print(f"[Process {accelerator.process_index}]: loading RexOmni...")
         rex_model = RexOmniWrapper(
             model_path=MODEL_CONFIGS['rex_path'],
             backend="transformers",
@@ -299,7 +299,7 @@ def main():
             temperature=0.0,
         )
 
-        print(f"[Process {accelerator.process_index}]: 正在加载 Qwen-VL...")
+        print(f"[Process {accelerator.process_index}]: loading Qwen-VL...")
         qwen_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             MODEL_CONFIGS['qwen_path'],
             torch_dtype="float16",
@@ -308,36 +308,35 @@ def main():
         )
         qwen_processor = AutoProcessor.from_pretrained(MODEL_CONFIGS['qwen_path'])
 
-        # 注意: RexOmniWrapper (如果不是 Dummy) 可能需要被 .to(accelerator.device)
-        # 但 Qwen-VL 已经通过 device_map="cuda" 指定了设备
-        # accelerator.prepare 仍然是管理模型的好方法
+        # Note: RexOmniWrapper (if not Dummy) may need .to(accelerator.device),
+        # but Qwen-VL already has its device specified via device_map="cuda".
+        # accelerator.prepare is still a good way to manage models.
         qwen_model, rex_model = accelerator.prepare(qwen_model, rex_model)
 
-        print(f"[Process {accelerator.process_index}]: 模型加载完毕。")
+        print(f"[Process {accelerator.process_index}]: models loaded.")
     except Exception as e:
-        print(f"[Process {accelerator.process_index}]: 模型加载失败: {e}")
+        print(f"[Process {accelerator.process_index}]: failed to load models: {e}")
         import traceback
         traceback.print_exc()
         return
 
-
-    # 1. 定义一个批处理大小 (Batch Size)
-    REX_BATCH_SIZE = 16  # <-- 根据你的 VRAM 调整这个值
+    # 1. Define a batch size (Batch Size)
+    REX_BATCH_SIZE = 16  # <-- Adjust this value according to your VRAM
 
     print(f"[Process {accelerator.process_index}]:"
-          f" 开始处理 {len(my_jobs)} 个作业，Rex 批处理大小为 {REX_BATCH_SIZE}。")
+          f" starting to process {len(my_jobs)} jobs with Rex batch size {REX_BATCH_SIZE}.")
 
     processed_metadata_list = []
 
-    # 2. 修改主循环：按 REX_BATCH_SIZE 步长迭代
+    # 2. Modify main loop: iterate with step REX_BATCH_SIZE
     for i in tqdm(range(0, len(my_jobs), REX_BATCH_SIZE),
-                  desc=f"Worker {accelerator.process_index} 批次进度",
+                  desc=f"Worker {accelerator.process_index} batch progress",
                   disable=not accelerator.is_main_process):
 
-        # 3. 准备这一批的作业和图像
+        # 3. Prepare jobs and images for this batch
         batch_jobs = my_jobs[i: i + REX_BATCH_SIZE]
         batch_images = []
-        batch_image_paths = []  # 用于调试
+        batch_image_paths = []  # for debugging
 
         valid_jobs_in_batch = []
 
@@ -346,30 +345,30 @@ def main():
                 img_path = job['destination_image_path']
                 batch_image_paths.append(img_path)
                 batch_images.append(Image.open(img_path).convert("RGB"))
-                valid_jobs_in_batch.append(job)  # 只有图像加载成功，作业才有效
+                valid_jobs_in_batch.append(job)  # only jobs with successfully loaded images are valid
             except Exception as e:
                 print(f"[Process {accelerator.process_index}]:"
-                      f" 加载图像 {img_path} 失败: {e}，该批次中将跳过此图。")
-                # 我们不添加图像或作业，保持 batch_images 和 valid_jobs_in_batch 同步
+                      f" failed to load image {img_path}: {e}, skipping this image in this batch.")
+                # We do not add the image or job, keeping batch_images and valid_jobs_in_batch in sync
 
-        if not batch_images:  # 如果这个批次所有图片都加载失败
+        if not batch_images:  # if all images in this batch failed to load
             continue
 
         try:
-            # 4. ★ 关键：批量运行 RexOmni
-            # (我们只传入成功加载的图像)
+            # 4. ★ Key: run RexOmni in batch
+            # (we only pass successfully loaded images)
             all_rex_results = rex_model.inference(
-                images=batch_images,  # 传入图像列表
+                images=batch_images,  # pass the image list
                 task="detection",
                 categories=["anything"]
             )
 
-            # 5. 遍历这一批的结果
-            # all_rex_results 列表的长度应等于 batch_images (和 valid_jobs_in_batch)
+            # 5. Iterate over results in this batch
+            # all_rex_results length should equal batch_images (and valid_jobs_in_batch)
             if len(all_rex_results) != len(valid_jobs_in_batch):
-                print(f"[Process {accelerator.process_index}]: 警告: RexOmni "
-                      f"返回结果数 ({len(all_rex_results)}) 与输入数 "
-                      f"({len(valid_jobs_in_batch)}) 不匹配。跳过此批次。")
+                print(f"[Process {accelerator.process_index}]: Warning: RexOmni "
+                      f"returned {len(all_rex_results)} results, but "
+                      f"{len(valid_jobs_in_batch)} inputs were provided. Skipping this batch.")
                 continue
 
             for job, image, rex_result in zip(valid_jobs_in_batch, batch_images, all_rex_results):
@@ -381,7 +380,7 @@ def main():
                 crops_to_process = []
                 box_coords_list = []
 
-                # 6. 收集所有需要处理的裁剪图 (来自这张图)
+                # 6. Collect all crops to be processed (from this image)
                 for annotation in detected_boxes:
                     if annotation.get("type") == "box" and len(annotation.get("coords", [])) == 4:
                         coords = annotation["coords"]
@@ -389,13 +388,13 @@ def main():
                         crops_to_process.append(crop_image)
                         box_coords_list.append(coords)
 
-                # 7. 批量 VQA (逻辑不变，仍然是批处理 *这张图的* 所有裁剪图)
+                # 7. Batch VQA (logic remains the same, still batch *per image* crops)
                 if crops_to_process:
                     json_str_list = _query_qwen_vl_BATCH(
                         crops_to_process, qwen_model, qwen_processor, accelerator
                     )
 
-                    # 8. 遍历批处理结果并进行解析 (逻辑不变)
+                    # 8. Iterate over batched results and parse (logic unchanged)
                     for json_str, coords in zip(json_str_list, box_coords_list):
                         json_obj_list = _parse_qwen_json(json_str)
                         if json_obj_list:
@@ -405,9 +404,9 @@ def main():
                                 visual_facts.append(obj_dict)
                             except (IndexError, TypeError, KeyError) as e:
                                 print(f"[Process {accelerator.process_index}]: "
-                                      f"解析批处理结果时出错: {e} | JSON: {json_str}")
+                                      f"Error while parsing batched result: {e} | JSON: {json_str}")
 
-                # 9. 聚合此作业的结果 (逻辑不变)
+                # 9. Aggregate results for this job (logic unchanged)
                 processed_metadata_list.append({
                     "question": job['prompt'],
                     "answer": job['answer'],
@@ -416,46 +415,46 @@ def main():
                     "image": job['destination_image_path'],
                     "visual_fact": visual_facts
                 })
-                # --- 循环内部逻辑结束 ---
+                # --- End of inner loop logic ---
 
         except Exception as e:
             print(f"[Process {accelerator.process_index}]: "
-                  f"处理批次 {i // REX_BATCH_SIZE} (图像 {batch_image_paths}) 时出错: {e}")
+                  f"Error while processing batch {i // REX_BATCH_SIZE} (images {batch_image_paths}): {e}")
             import traceback
             traceback.print_exc()
 
-    # --- 循环结束 ---
+    # --- End of loop ---
 
     print(f"[Process {accelerator.process_index}]:"
-          f" 进程完成，处理了 {len(processed_metadata_list)} 个项目。")
+          f" process finished, handled {len(processed_metadata_list)} items.")
 
-    # (7. 收集所有结果 - 保持不变)
-    print(f"[Process {accelerator.process_index}]: 正在收集结果...")
+    # (7. Gather all results - unchanged)
+    print(f"[Process {accelerator.process_index}]: gathering results...")
     all_results_list_of_lists = gather_object(processed_metadata_list)
 
-    # (8. 保存 (仅在主进程上) - ★★★ 使用修复后的 GATHER 逻辑 ★★★)
+    # (8. Save (only on main process) - ★★★ using fixed GATHER logic ★★★)
     if accelerator.is_main_process:
-        print("主进程 [Saving]: 正在聚合和保存所有结果...")
+        print("Main process [Saving]: aggregating and saving all results...")
 
-        # --- 关键修复 ---
-        # gather_object 已经返回了一个扁平化的字典列表 (List[dict])。
+        # --- Key fix ---
+        # gather_object already returns a flattened list of dictionaries (List[dict]).
         final_metadata_list = all_results_list_of_lists
-        # --- 修复结束 ---
+        # --- End of fix ---
 
         json_filename = os.path.join(JSON_OUTPUT_DIR, "clevr_cogent_trainA_r1_processed.json")
 
-        # 验证一下数量
-        print(f"聚合后的项目总数: {len(final_metadata_list)}")
+        # Verify the count
+        print(f"Total number of aggregated items: {len(final_metadata_list)}")
         if len(final_metadata_list) > 0:
-            print(f"第一个项目的类型: {type(final_metadata_list[0])}")
+            print(f"Type of first item: {type(final_metadata_list[0])}")
 
-        print(f"\n正在将 {len(final_metadata_list)} 条元数据保存到 {json_filename}...")
+        print(f"\nSaving {len(final_metadata_list)} metadata entries to {json_filename}...")
         with open(json_filename, 'w', encoding='utf-8') as f:
             json.dump(final_metadata_list, f, indent=4, ensure_ascii=False)
 
-        print(f"\n--- 处理完成！ ---")
-        print(f"所有图像文件已保存在: '{IMAGE_OUTPUT_DIR}'")
-        print(f"最终 JSON 文件已保存在: '{JSON_OUTPUT_DIR}'")
+        print(f"\n--- Processing completed! ---")
+        print(f"All image files have been saved in: '{IMAGE_OUTPUT_DIR}'")
+        print(f"Final JSON file has been saved in: '{JSON_OUTPUT_DIR}'")
 
 
 if __name__ == "__main__":

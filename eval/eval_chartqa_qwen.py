@@ -31,8 +31,6 @@ model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
 ).to(DEVICE)
 
 model.eval()
-# Make sure model and processor are loaded before being potentially used in generate_inner if it were called
-# model = Idefics3ForConditionalGeneration.from_pretrained(model_id, **model_args).to(DEVICE)
 MIN_PIXELS = 1280 * 28 * 28            # 1 003 520
 MAX_PIXELS = 16384 * 28 * 28
 processor = AutoProcessor.from_pretrained(model_id, min_pixels=MIN_PIXELS, max_pixels=MAX_PIXELS)

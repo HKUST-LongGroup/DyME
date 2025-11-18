@@ -8,21 +8,21 @@ from PIL import Image
 from datasets import load_dataset
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 
-# 导入模型包装器
+# Import model wrapper
 try:
     from rex_omni import RexOmniWrapper
 except ImportError:
-    # 导入与 clevr_processor.py 中匹配的 DummyRex
-    print("警告: 'from rex_omni import RexOmniWrapper' 失败。")
-    print("将使用一个虚拟的 RexOmniWrapper (DummyRex) 仅供测试。")
+    # Import DummyRex matching the one in clevr_processor.py
+    print("Warning: 'from rex_omni import RexOmniWrapper' failed.")
+    print("Using a dummy RexOmniWrapper (DummyRex) for testing only.")
 
 
     class DummyRex:
         def __init__(self, *args, **kwargs):
-            print("INFO: DUMMY: 正在使用 DummyRex 检测器。")
+            print("INFO: DUMMY: Using DummyRex detector.")
 
         def inference(self, images, task, categories, **kwargs):
-            print("INFO: DUMMY: DummyRex 正在返回一个伪造的中心框。")
+            print("INFO: DUMMY: DummyRex returning a fake center box.")
             if isinstance(images, Image.Image):
                 w, h = images.size
             else:
@@ -37,7 +37,7 @@ except ImportError:
 try:
     from qwen_vl_utils import process_vision_info
 except ImportError:
-    print("警告: 无法导入 'qwen_vl_utils.process_vision_info'。")
+    print("Warning: Failed to import 'qwen_vl_utils.process_vision_info'.")
 
 
     def process_vision_info(messages):
@@ -54,16 +54,16 @@ from clevr_processor import ClevrFactExtractor, _strip_tags
 
 def run_test(configs, paths, gpu_id=0, sample_index=0):
     """
-    在单个样本上运行测试流水线。
+    Run the test pipeline on a single sample.
     """
-    print("--- 开始单次运行测试 (CoGenT) ---")
+    print("--- Starting single-run test (CoGenT) ---")
 
-    # --- 1. 设置环境并加载模型 ---
+    # --- 1. Set environment and load models ---
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-    print(f"设置 CUDA_VISIBLE_DEVICES={gpu_id}")
+    print(f"Set CUDA_VISIBLE_DEVICES={gpu_id}")
 
     try:
-        print(f"正在加载 RexOmni... ({configs['rex_path']})")
+        print(f"Loading RexOmni... ({configs['rex_path']})")
         rex_model = RexOmniWrapper(
             model_path=configs['rex_path'],
             backend="transformers",
@@ -71,7 +71,7 @@ def run_test(configs, paths, gpu_id=0, sample_index=0):
             temperature=0.0,
         )
 
-        print(f"正在加载 Qwen-VL... ({configs['qwen_path']})")
+        print(f"Loading Qwen-VL... ({configs['qwen_path']})")
         qwen_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             configs['qwen_path'],
             torch_dtype="float16",
@@ -80,12 +80,12 @@ def run_test(configs, paths, gpu_id=0, sample_index=0):
         )
         qwen_processor = AutoProcessor.from_pretrained(configs['qwen_path'])
 
-        print("模型加载完毕。")
+        print("Models loaded.")
     except Exception as e:
-        print(f"模型加载失败: {e}")
+        print(f"Failed to load models: {e}")
         return
 
-    print("正在加载数据集元数据...")
+    print("Loading dataset metadata...")
     try:
         dataset = load_dataset("MMInstruction/Clevr_CoGenT_TrainA_R1", split='train', streaming=True)
         example_iter = iter(dataset)
@@ -93,46 +93,46 @@ def run_test(configs, paths, gpu_id=0, sample_index=0):
             example = next(example_iter)
 
     except Exception as e:
-        print(f"加载或筛选数据集失败: {e}")
+        print(f"Failed to load or filter dataset: {e}")
         return
 
-    print(f"正在处理样本 {sample_index}...")
+    print(f"Processing sample {sample_index}...")
 
     try:
-        # 1. 预处理
+        # 1. Preprocessing
         prompt = example['problem']
         hint = _strip_tags(example['thinking'], 'think')
         answer = _strip_tags(example['solution'], 'answer')
-        image = example['image'].convert("RGB")  # 获取 PIL 图像并转为 RGB
+        image = example['image'].convert("RGB")  # Get PIL image and convert to RGB
 
-        # 为测试保存图像
+        # Save image for testing
         destination_image_path = os.path.join(paths['output_dir'], "images", f"test_sample_{sample_index}.jpg")
         os.makedirs(os.path.dirname(destination_image_path), exist_ok=True)
         image.save(destination_image_path, "JPEG")
-        print(f"已加载并保存测试图像: {destination_image_path}")
+        print(f"Loaded and saved test image: {destination_image_path}")
 
-        # --- 阶段 1: RexOmni 检测 ---
-        print("正在运行 RexOmni 检测...")
+        # --- Stage 1: RexOmni detection ---
+        print("Running RexOmni detection...")
         rex_results = rex_model.inference(images=image, task="detection", categories=["anything"])
         predictions = rex_results[0]["extracted_predictions"]
         detected_boxes = predictions.get("anything", [])
-        print(f"RexOmni 检测到 {len(detected_boxes)} 个 'anything' 框。")
+        print(f"RexOmni detected {len(detected_boxes)} 'anything' boxes.")
 
         visual_facts = []
 
-        # --- 阶段 2: Qwen-VL VQA ---
+        # --- Stage 2: Qwen-VL VQA ---
         for i, annotation in enumerate(detected_boxes):
             if annotation.get("type") == "box" and len(annotation.get("coords", [])) == 4:
 
                 coords = annotation["coords"]
-                print(f"  正在处理框 {i}: {coords}")
+                print(f"  Processing box {i}: {coords}")
 
                 crop_image = ClevrFactExtractor._crop_and_expand_box(image, coords)
 
-                # 为调试而保存裁剪的图像
+                # Save cropped image for debugging
                 crop_filename = f"./test_crop_{sample_index}_{i}.jpg"
                 crop_image.save(crop_filename)
-                print(f"    -> 已保存裁剪图像以便检查: {crop_filename}")
+                print(f"    -> Saved cropped image for inspection: {crop_filename}")
 
                 json_str = ClevrFactExtractor._query_qwen_vl(
                     crop_image, qwen_model, qwen_processor
@@ -144,11 +144,11 @@ def run_test(configs, paths, gpu_id=0, sample_index=0):
                     obj_dict = json_obj_list[0]
                     obj_dict["bounding_box"] = [round(c, 2) for c in coords]
                     visual_facts.append(obj_dict)
-                    print(f"    -> Qwen-VL 结果: {obj_dict}")
+                    print(f"    -> Qwen-VL result: {obj_dict}")
                 else:
-                    print(f"    -> Qwen-VL 未返回有效的 JSON。")
+                    print(f"    -> Qwen-VL did not return valid JSON.")
 
-        # --- 4. 打印最终结果 ---
+        # --- 4. Print final result ---
         final_result = {
             "prompt": prompt,
             "answer": answer,
@@ -158,34 +158,34 @@ def run_test(configs, paths, gpu_id=0, sample_index=0):
         }
 
         print("\n" + "=" * 30)
-        print("--- 单次测试结果 ---")
+        print("--- Single test result ---")
         print(json.dumps(final_result, indent=4, ensure_ascii=False))
         print("=" * 30 + "\n")
 
     except Exception as e:
-        print(f"处理样本 {sample_index} 时出错: {e}")
+        print(f"Error while processing sample {sample_index}: {e}")
         import traceback
         traceback.print_exc()
 
 
 if __name__ == "__main__":
-    # --- 1. 配置模型 ---
+    # --- 1. Model configs ---
     MODEL_CONFIGS = {
         "rex_path": "IDEA-Research/Rex-Omni",
         "qwen_path": "Qwen/Qwen2.5-VL-32B-Instruct-AWQ"
     }
 
-    # --- 2. 配置数据路径 ---
+    # --- 2. Paths config ---
     PATHS = {
-        # !! 修改为你希望保存图像和 JSON 的目录 !!
+        # !! Change this to the directory where you want to save images and JSON !!
         "output_dir": "./clevr_cogent_output"
     }
 
-    # --- 3. 配置测试参数 ---
+    # --- 3. Test parameters ---
     GPU_ID_TO_USE = 0
-    SAMPLE_INDEX_TO_TEST = 0  # 测试第一个 CLEVR 样本
+    SAMPLE_INDEX_TO_TEST = 0  # Test the first CLEVR sample
 
-    # --- 4. 运行测试 ---
+    # --- 4. Run test ---
     run_test(
         configs=MODEL_CONFIGS,
         paths=PATHS,

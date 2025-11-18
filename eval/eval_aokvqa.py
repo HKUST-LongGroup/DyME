@@ -1,15 +1,12 @@
 import torch
 from PIL import Image
 from accelerate import Accelerator
-# 确保此路径正确且实用程序可用。
 from datasets import load_dataset
 from torch.distributed import all_gather_object
 from transformers import AutoProcessor, AutoConfig, AutoTokenizer, LlavaOnevisionForConditionalGeneration
 from trl.models import unwrap_model_for_generation
 
 from data_utils.aokvqa.evaluator import eval_aokvqa_direct
-# 移除了 ChartQA 特定的评估器
-# from data_utils.chart.evaluator import eval_one_chart
 from reward_utils.compute_rewards import split_initial_context
 
 accelerator = Accelerator()
@@ -21,11 +18,9 @@ DEVICE = accelerator.device
 # Model and Processor Configuration
 model_args = {}  # Use {"torch_dtype":torch.bfloat16} if desired and supported
 
-# --- 您的模型 ID 列表保持不变 ---
-# ... (model_id 定义) ...
-model_id = 'llava-hf/llava-onevision-qwen2-0.5b-ov-hf'
-# model_id = '/path/to/dyme-aok-local/final_checkpoint'
-# --- ---------------------- ---
+
+model_id = '/path/to/dyme-aok-local/final_checkpoint'
+
 
 config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
 tokenizer = AutoTokenizer.from_pretrained(model_id, config=config, trust_remote_code=True)
@@ -108,17 +103,13 @@ def run_kh_batch(batch_data_list):  # Renamed from run_kh, takes a batch
 
 
 
-# --- Main Evaluation Logic ---
-# --- 修改：将 task 更改为 'aokvqa' ---
 task = 'aokvqa'
-dt_record_local = {}  # 为当前进程存储结果
+dt_record_local = {} 
 
 if task == 'aokvqa':
     if accelerator.is_main_process:
-        # --- 修改：更新打印信息 ---
         print("Loading A-OKVQA dataset...")
     try:
-        # --- 修改：加载 A-OKVQA 和 'validation' 拆分 ---
         full_dataset = load_dataset("HuggingFaceM4/A-OKVQA", trust_remote_code=True)['validation']
     except Exception as e:
         if accelerator.is_main_process:
@@ -126,11 +117,8 @@ if task == 'aokvqa':
             print("Attempting to load with specific revision if applicable, or check path/connection.")
         raise
 
-    # full_dataset = full_dataset.select(range(80)) # 取消注释以进行快速测试
 
     eval_datasets_all_prepared = []
-
-    # ChartQA 特定的指令前缀已被移除
 
     for d_item in tqdm(full_dataset, desc="Preparing dataset", disable=not accelerator.is_main_process):
         image_path = d_item['image']
@@ -139,18 +127,17 @@ if task == 'aokvqa':
         # --- 修改：'label' -> 'direct_answers' ---
         ground_truth_answers = d_item.get('direct_answers')
 
-        if not ground_truth_answers:  # 如果 'direct_answers' 不存在或为空列表
+        if not ground_truth_answers:  
             if accelerator.is_main_process:
-                # --- 修改：更新警告信息 ---
+
                 tqdm.write(
                     f"Warning: Item missing 'direct_answers' or 'direct_answers' is empty. Question: {raw_question[:50]}...")
-            continue  # 跳过此样本
+            continue  
 
         model_input_text_for_template = raw_question
         eval_datasets_all_prepared.append({
             'image_path': image_path,
             'model_input_text': model_input_text_for_template,
-            # --- 修改：存储整个答案列表 ---
             'direct_answers_list': ground_truth_answers,
             'original_question': raw_question
         })
@@ -161,10 +148,9 @@ if task == 'aokvqa':
 
     if total_items == 0:
         if accelerator.is_main_process:
-            # --- 修改：更新退出信息 ---
             print("No data prepared for evaluation after filtering. Exiting A-OKVQA evaluation.")
     else:
-        # --- (分布式采样的逻辑保持不变) ---
+
         items_per_proc = total_items // num_processes
         extra_items = total_items % num_processes
         local_start_index = process_index * items_per_proc + min(process_index, extra_items)
@@ -172,7 +158,7 @@ if task == 'aokvqa':
         local_end_index = local_start_index + num_local_items
         eval_datasets_local = eval_datasets_all_prepared[local_start_index:local_end_index]
 
-        BATCH_SIZE = 32  # 根据您的 VRAM 调整
+        BATCH_SIZE = 32  
         REPORT_INTERVAL_BATCHES = 1
 
         pbar = None
@@ -194,25 +180,20 @@ if task == 'aokvqa':
 
             for item_idx_in_batch, full_pred_text in enumerate(batch_predictions_texts):
                 original_item = current_batch_list[item_idx_in_batch]
-                # --- 修改：获取 'direct_answers_list' ---
                 ground_truth_answers_list = eval(original_item['direct_answers_list'])
 
                 _, parsed_pred_answer = split_initial_context(full_pred_text)
                 if not parsed_pred_answer.strip():
-                    parsed_pred_answer = full_pred_text  # 回退
-
-                # --- 修改：使用新的评估函数 ---
+                    parsed_pred_answer = full_pred_text 
                 score = eval_aokvqa_direct(parsed_pred_answer, ground_truth_answers_list)
                 dt_record_local['res'].append(score)
 
                 if accelerator.is_main_process:
-                    # --- 修改：打印真实答案列表 ---
                     print(parsed_pred_answer, "######", ground_truth_answers_list, "######", score)
 
             if pbar:
                 pbar.update(len(current_batch_list))
 
-            # --- (中间报告逻辑保持不变) ---
             is_last_local_batch = (batch_idx_local == num_local_batches - 1)
             should_sync_and_report = ((batch_idx_local + 1) % REPORT_INTERVAL_BATCHES == 0) or is_last_local_batch
 
@@ -244,7 +225,6 @@ if task == 'aokvqa':
 
                     tqdm.write(f"\n{report_title}")
                     if current_global_scores_list:
-                        # 'res' 列表现在是 0 和 1，均值即为准确率
                         mean_acc_global = np.array(current_global_scores_list).mean()
                         if accelerator.is_main_process:
                             print(f"Global samples processed: {total_samples_processed_globally} / {total_items}")
@@ -262,7 +242,6 @@ if task == 'aokvqa':
         if pbar:
             pbar.close()
 
-        # (其余报告逻辑保持不变)
         if accelerator.is_main_process and len(eval_datasets_local) == 0 and total_items > 0:
             print(
                 f"Main process had no data, but other processes might have. Final global metrics are printed by the last reporting sync.")

@@ -14,10 +14,6 @@ LOCK_FILE = "best_template.txt.lock"
 # ----------------------------------------------------
 
 def _get_llm_comparison(client, system_prompt, current_template, new_template) -> bool:
-    """
-    调用 LLM 来判断新模板是否“更好”。
-    """
-    # 针对 LLM 评估的专用提示
     comparison_prompt = f"""You are an expert in AI prompt engineering. Your task is to compare two reasoning templates. You must decide if the 'New Template' should replace the 'Current Template' as the single 'best' template.
 
 My goal is to keep only the *best*, *clearest*, and *most general* template.
@@ -40,11 +36,9 @@ Respond with **only** the word "YES" or "NO".
     try:
         response = client.get_completion(comparison_prompt, system_prompt=system_prompt, max_tokens=30)
         decision = response.strip().upper()
-        # print(f"[Process {os.getpid()}] LLM comparison result: {decision}") # 调试信息
         return decision == "YES"
     except Exception as e:
-        # print(f"[Process {os.getpid()}] LLM comparison failed: {e}")
-        return False # 如果 LLM 失败，则不替换
+        return False 
 
 
 def _read_current_template(lock: FileLock) -> str:
