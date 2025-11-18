@@ -114,7 +114,6 @@ def prepare_chart_sft_data(json_path: str) -> List[Dict[str, Any]]:
 
 # --- Example of How to Use ---
 if __name__ == "__main__":
-    # Create a dummy JSON file for demonstration.
     dummy_data = [
         {"question": "What was the trend in 2022?", "answer": " The trend was upward. ", "human_or_machine": 0},
         {"question": "Which category was highest?", "answer": "Category A was highest.", "human_or_machine": 1},

@@ -58,7 +58,6 @@ def collate_fn(examples, processor, label_id=151646):
               {
                   "role": "user",
                   "content": [
-                      # {"type": "text", "text": "Answer briefly."},
                       {"type": "image"},
                       {"type": "text", "text": question}
                   ]
