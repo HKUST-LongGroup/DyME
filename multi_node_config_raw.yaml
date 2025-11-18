@@ -10,9 +10,9 @@ main_process_ip: '30.203.137.220' # 您的主节点IP
 main_process_port: 36001          # 您提供的端口
 main_training_function: main
 mixed_precision: 'bf16'
-num_machines: 8                   # 您的机器总数
+num_machines: 2                   # 您的机器总数
 # 假设每台机器有8个GPU (8台 * 8个GPU = 64个进程)
-num_processes: 64
+num_processes: 16
 rdzv_backend: static
 same_network: true
 tpu_use_cluster: false
@@ -22,7 +22,7 @@ use_cpu: false
 # 新增: 添加deepspeed_config部分来配置ZeRO-2
 deepspeed_config:
   zero_stage: 2
-  gradient_accumulation_steps: 16
+  gradient_accumulation_steps: 1
   gradient_clipping: "auto"
   offload_optimizer_device: "cpu" # 推荐：将优化器状态卸载到CPU以节省GPU内存
   offload_param_device: "cpu"

@@ -1,17 +1,6 @@
-# Copyright 2020-2025 The HuggingFace Team. All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+import ast
 import itertools
+import json
 import os
 import textwrap
 import warnings
@@ -286,7 +275,7 @@ class DyMETrainer(Trainer):
 
         #### CHANGE 3
         self.sft_replay_buffer = []
-        self.sft_pool_trigger_size = 4*8*8  # 假设你从args传入
+        self.sft_pool_trigger_size = 3*8*8  # 假设你从args传入
 
         self.task_name = task_name
         self.reward_weights = torch.nn.Parameter(torch.ones(3), requires_grad=False)
@@ -578,50 +567,6 @@ class DyMETrainer(Trainer):
             inputs = self._generate_and_score_completions(accumulated_local_batch)
         return inputs
 
-    def sft_collator_function_for_tensors(self, batch: list[dict]):
-        """
-        这个 collator 接收一个 list，每个元素是:
-        {'sft_ids': tensor(L), 'sft_masks': tensor(L), ...}
-        """
-
-        # 1. 从 batch (一个 list[dict]) 中解压出 list[Tensor]
-        sft_ids_list = [item['sft_ids'] for item in batch]
-        sft_masks_list = [item['sft_masks'] for item in batch]
-        pixel_values_list = [item['pixel_values'] for item in batch]
-        image_sizes_list = [item['image_sizes'] for item in batch]
-
-        # 2. --- 解决 Padding 问题 ---
-        #    调用你之前提到的 pad_sequence
-        input_ids = pad_sequence(
-            sft_ids_list,
-            batch_first=True,
-            padding_value=self.processing_class.tokenizer.pad_token_id
-        ).long()
-
-        attention_mask = pad_sequence(
-            sft_masks_list,
-            batch_first=True,
-            padding_value=0
-        ).long()
-
-        # 3. --- 解决 Labels 问题 ---
-        labels = input_ids.clone()
-        labels[attention_mask == 0] = -100  # 只屏蔽 padding
-        # -----------------------------------------------------------
-        #    !!! 这不是你想要的SFT。你需要的是 labels[:, :prompt_len] = -100
-        #    !!! 但因为你没有存 prompt_len，这里做不到！
-
-        # 4. 堆叠 (stack) 图像数据
-        pixel_values = torch.cat(pixel_values_list, dim=0)
-        image_sizes = torch.cat(image_sizes_list, dim=0)
-
-        return {
-            "input_ids": input_ids.to(self.accelerator.device),
-            "attention_mask": attention_mask.to(self.accelerator.device),
-            "labels": labels.to(self.accelerator.device),
-            "pixel_values": pixel_values.to(self.accelerator.device),
-            "image_sizes": image_sizes
-        }
 
     def _generate_and_score_completions(
         self, inputs: list[dict[str, Union[torch.Tensor, Any]]]
@@ -758,16 +703,11 @@ class DyMETrainer(Trainer):
             if has_correct[batch_id] == 0:
                 if sft_check[i]:
                     #### CHANGE 3
-                    sft_ids = torch.cat([prompt_ids[i], sft_padded_ids[i]], dim=0)
-                    sft_masks = torch.cat([prompt_mask[i], sft_attn_masks[i]], dim=0)
-
-                    sft_sample = {
-                        "sft_ids": sft_ids,
-                        "sft_masks": sft_masks,
-                        "pixel_values": pixel_values[i].unsqueeze(0),
-                        "image_sizes": image_sizes[i].unsqueeze(0)
-                    }
-                    self.sft_replay_buffer.append(sft_sample)
+                    sft_str_label = sft_gt[i]
+                    sft_dt = inputs_for_generate[i].copy()
+                    sft_dt['answer'] = sft_str_label
+                    sft_dt_as_json_string = json.dumps(sft_dt)
+                    self.sft_replay_buffer.append(sft_dt_as_json_string)
 
                     #### CHANGE 3: Do not add sft sample this time.
                     completion_id_ = torch.cat([completion_ids[i], completion_ids[i][0:0]])
@@ -929,58 +869,54 @@ class DyMETrainer(Trainer):
     def _compute_loss(self, model, inputs):
         # return torch.nn.Parameter(torch.tensor(0.0, device=self.accelerator.device))  # Dummy loss for compatibility
         # Compute the per-token log probabilities for the model
+        torch.cuda.empty_cache()
+        all_processes_pools = gather_object(self.sft_replay_buffer)
 
-        # --- 检查 SFT 触发器 ---
-        local_pool_size = len(self.sft_replay_buffer)
-        local_size_tensor = torch.tensor([local_pool_size],
-                                         device=self.accelerator.device,
-                                         dtype=torch.long)
-        torch.distributed.all_reduce(local_size_tensor, op=torch.distributed.ReduceOp.SUM)
-        global_pool_size = local_size_tensor.item()
+        global_sft_input = []
+        for sublist in all_processes_pools:
+            global_sft_input.append(json.loads(sublist))
+        is_sft_step = False
 
-        is_sft_step = (global_pool_size >= self.sft_pool_trigger_size)
-
-        # --- 逻辑分支 ---
+        if len(global_sft_input) >= self.sft_pool_trigger_size:
+            is_sft_step = True
+            global_sft_input = global_sft_input[:self.sft_pool_trigger_size]
 
         if is_sft_step:
-            # --- 分支 1：执行 SFT 训练 ---
-            # (这将替换 GRPO 步骤)
-
-            # 1. 收集并清空
-            all_processes_pools = self.accelerator.gather_object(self.sft_replay_buffer)
             self.sft_replay_buffer = []
+            rank = self.accelerator.process_index
+            num_processes = self.accelerator.num_processes
 
-            # 2. 展平为全局列表
-            global_sft_data = [
-                item for sublist in all_processes_pools for item in sublist
-            ]
+            # 现在 global_sft_json_strings 是一个干净的、完整的JSON字符串列表
+            my_local_input = global_sft_input[rank::num_processes]
+            # if self.accelerator.device.index == 0:
+            #     if len(my_local_input) == 0:
+            #         print(None, len(my_local_input), self.sft_pool_trigger_size)
+            #     else:
+            #         print(my_local_input[0], len(my_local_input), self.sft_pool_trigger_size)
 
-            # 3. 检查数据是否为空
-            if not global_sft_data:
-                # 如果收集了个寂寞，就跳过
-                return torch.tensor(0.0, device=self.accelerator.device, requires_grad=True)
-
-            # 4. --- 核心修改：一次性 Collate ---
+            assert my_local_input, f"Rank {self.accelerator.process_index} 在JSON解码后数据为空！"
+            # --- 4. Local collate ---
+            # local_sft_data is your correct list[dict], so the collator will work
             try:
-                sft_batch = self.sft_collator_function_for_tensors(global_sft_data)
+                sft_batch = self.processing_func(my_local_input)
+                sft_batch = super(DyMETrainer, self)._prepare_inputs(sft_batch)
             except Exception as e:
-                print(f"Error during SFT collate-all: {e}")
-                # 你很可能会在这里遇到 padding 或 label 错误
+                print(f"Rank {self.accelerator.process_index} Error during LOCAL SFT collate: {e}")
                 raise e
 
-            # 5. --- 核心修改：一次性 Backward ---
-            #    对这 *一个* 大批次执行 *一次* 前向传播
+            # ... (rest of the SFT loss calculation) ...
             with self.accelerator.autocast():
                 outputs = model(**sft_batch)
-                sft_loss = outputs.loss  # 模型自动计算平均损失
+                sft_loss = outputs.loss
 
-            # 6. 记录并返回 SFT 损失
-            #    Trainer 的 training_step 会自动对这个返回的 loss 调用 backward()
             self._metrics['train']["sft_replay_loss"].append(sft_loss.item())
-            # 记录一个 "标志"，以便在 wandb/tensorboard 上看到 SFT 何时被触发
-            self._metrics['train']["sft_triggered"].append(1.0)
+            self._metrics['train']["sft_triggered"].append(16.0)
+
+            local_batch_size = sft_batch["input_ids"].shape[0]
+            sft_loss = sft_loss
             return sft_loss
         else:
+            self._metrics['train']["sft_triggered"].append(0)
             prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
             completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
             pixel_values = inputs["pixel_values"]
@@ -1067,15 +1003,6 @@ class DyMETrainer(Trainer):
         self._metrics[mode].clear()
 
         if self.accelerator.is_main_process and self.log_completions:
-            # if is_rich_available():
-            #     print_prompt_completions_sample(
-            #         self._textual_logs["prompt"],
-            #         self._textual_logs["completion"],
-            #         self._textual_logs["rewards"],
-            #         self.state.global_step,
-            #         self.num_completions_to_print,
-            #     )
-
             if self.args.report_to and "wandb" in self.args.report_to and wandb.run is not None:
                 import pandas as pd
 
@@ -1089,62 +1016,3 @@ class DyMETrainer(Trainer):
                 if self.wandb_log_unique_prompts:
                     df = df.drop_duplicates(subset=["prompt"])
                 wandb.log({"completions": wandb.Table(dataframe=df)})
-
-    def create_model_card(
-        self,
-        model_name: Optional[str] = None,
-        dataset_name: Optional[str] = None,
-        tags: Union[str, list[str], None] = None,
-    ):
-        """
-        Creates a draft of a model card using the information available to the `Trainer`.
-
-        Args:
-            model_name (`str` or `None`, *optional*, defaults to `None`):
-                Name of the model.
-            dataset_name (`str` or `None`, *optional*, defaults to `None`):
-                Name of the dataset used for training.
-            tags (`str`, `list[str]` or `None`, *optional*, defaults to `None`):
-                Tags to be associated with the model card.
-        """
-        if not self.is_world_process_zero():
-            return
-
-        if hasattr(self.model.config, "_name_or_path") and not os.path.isdir(self.model.config._name_or_path):
-            base_model = self.model.config._name_or_path
-        else:
-            base_model = None
-
-        tags = tags or []
-        if isinstance(tags, str):
-            tags = [tags]
-
-        if hasattr(self.model.config, "unsloth_version"):
-            tags.append("unsloth")
-
-        citation = textwrap.dedent(
-            """\
-            @article{zhihong2024deepseekmath,
-                title        = {{DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models}},
-                author       = {Zhihong Shao and Peiyi Wang and Qihao Zhu and Runxin Xu and Junxiao Song and Mingchuan Zhang and Y. K. Li and Y. Wu and Daya Guo},
-                year         = 2024,
-                eprint       = {arXiv:2402.03300},
-            }
-            """
-        )
-
-        model_card = generate_model_card(
-            base_model=base_model,
-            model_name=model_name,
-            hub_model_id=self.hub_model_id,
-            dataset_name=dataset_name,
-            tags=tags,
-            wandb_url=wandb.run.get_url() if is_wandb_available() and wandb.run is not None else None,
-            comet_url=get_comet_experiment_url(),
-            trainer_name="GRPO",
-            trainer_citation=citation,
-            paper_title="DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models",
-            paper_id="2402.03300",
-        )
-
-        model_card.save(os.path.join(self.args.output_dir, "README.md"))

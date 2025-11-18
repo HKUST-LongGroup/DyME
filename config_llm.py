@@ -15,7 +15,7 @@ TRAINING_CONFIG = {
     "num_client": 8,  # 并发客户端数量，通常与 GPU 数量相同
     # RL阶段的参数 (根据原脚本的rl_args)
     "dyme_args": {
-        "output_dir": '/apdcephfs_nj4/share_300377003/realzliu/dyme-qwen25-GSM8K-new',
+        "output_dir": '/apdcephfs_nj4/share_300377003/realzliu/dyme-qwen25-GSM8K-new', ###anony¥¥
         "logging_steps": 1,
         "num_generations": 16,  # RL 阶段可以生成多个响应进行比较
         "max_completion_length": 1024,
@@ -55,7 +55,7 @@ CLIENT_CONFIG = {
 
 # ====== Dataset Configuration ======
 DATASET_CONFIG = {
-    "train_dataset": "/apdcephfs_nj4/share_300377003/realzliu/data/lm_math/json/train.json",  # 训练数据路径
+    "train_dataset": "/apdcephfs_nj4/share_300377003/realzliu/data/lm_math/json/train.json",  ###anony¥¥
     # 训练数据路径
     "eval_dataset": "openai/gsm8k",  # 验证数据路径
 }

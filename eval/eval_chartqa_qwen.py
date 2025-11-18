@@ -4,7 +4,7 @@ from accelerate import Accelerator
 # Ensure this path is correct and the utility is available.
 from datasets import load_dataset
 from torch.distributed import all_gather_object
-from transformers import AutoProcessor, AutoConfig, AutoTokenizer, LlavaOnevisionForConditionalGeneration
+from transformers import AutoProcessor, AutoConfig, AutoTokenizer, Qwen2_5_VLForConditionalGeneration
 from trl.models import unwrap_model_for_generation
 
 from data_utils.chart.evaluator import eval_one_chart
@@ -19,47 +19,12 @@ DEVICE = accelerator.device
 # Model and Processor Configuration
 model_args = {}  # Use {"torch_dtype":torch.bfloat16} if desired and supported
 
-## 这个是DyME后的llava，使用/apdcephfs_nj4/share_300377003/realzliu/data/chartqa_output/json/train_new_prerefine.json 这个数据
-model_id = '/apdcephfs_qy4/share_302593112/realzliu/code/DyME/output/test/checkpoint-2900'
-model_id = '/apdcephfs_qy4/share_302593112/realzliu/code/DyME/output-dist/test/final_checkpoint'
 
-## 这个是sft后的llava，使用/apdcephfs_nj4/share_300377003/realzliu/data/chartqa_output/json/train_new_prerefine.json 这个数据
-# model_id = '/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart/checkpoint-400'
+model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-qwen25_7B-chart-llava_cot/checkpoint-3200'
 
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart-llava_cot/checkpoint-4010'
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-chart-llava/checkpoint-36'
-
-# model_id = '/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart-low/checkpoint-74'
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart-low/checkpoint-740'
-
-# model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-llavaov-chart-llava_cot/checkpoint-300'
-
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-llavaov-chart-low/checkpoint-1470'
-
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-llavaov-chart/checkpoint-8000'
-# model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-chart-llava-beta/checkpoint-210'
-#
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-llavaov-chart-beta/checkpoint-570'
-# model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-llavaov-chart-low-beta/checkpoint-882'
-
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-llavaov-chart-low/checkpoint-126'
-# model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-llavaov-chart-low-beta'
-
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/grpo-llavaov-chart-low/checkpoint-420'
-
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-llavaov-chart-change1-09/final_checkpoint'
-
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-llavaov-chart-change2/final_checkpoint'
-
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-llavaov-chart-change3/final_checkpoint'
-
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-k-16/checkpoint-108'
-
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-k-8/final_checkpoint'
-model_id = '/apdcephfs_nj4/share_300377003/realzliu/dyme-k-16/checkpoint-882'
 config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
 tokenizer = AutoTokenizer.from_pretrained(model_id, config=config, trust_remote_code=True)
-model = LlavaOnevisionForConditionalGeneration.from_pretrained(
+model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
     model_id,
     torch_dtype=torch.bfloat16,
     low_cpu_mem_usage=True,
@@ -68,15 +33,16 @@ model = LlavaOnevisionForConditionalGeneration.from_pretrained(
 model.eval()
 # Make sure model and processor are loaded before being potentially used in generate_inner if it were called
 # model = Idefics3ForConditionalGeneration.from_pretrained(model_id, **model_args).to(DEVICE)
-
-processor = AutoProcessor.from_pretrained(model_id)
+MIN_PIXELS = 1280 * 28 * 28            # 1 003 520
+MAX_PIXELS = 16384 * 28 * 28
+processor = AutoProcessor.from_pretrained(model_id, min_pixels=MIN_PIXELS, max_pixels=MAX_PIXELS)
 
 # Configure image processor size
 # This can consume significant VRAM. Ensure it's intended.
 if hasattr(processor.image_processor, 'size') and isinstance(processor.image_processor.size, dict):
     # if 'longest_edge' in processor.image_processor.size:
     #     print('Setting image processor longest_edge to 2048')
-        # processor.image_processor.size['longest_edge'] = 512 * 4
+    #     processor.image_processor.size['longest_edge'] = 512 * 4
     processor.tokenizer.padding_side = 'left'
 else:
     print(

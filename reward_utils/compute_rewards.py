@@ -11,7 +11,7 @@ def split_initial_context(text: str):
         ans = ans.strip('.')
     else:
         context = text
-        ans = ''
+        ans = text
     return context, ans
 
 def calculate_rewards_in_parallel(
@@ -50,9 +50,12 @@ def calculate_rewards_in_parallel(
 
     # Prepare the arguments for each task by zipping the data together.
     # This creates an iterator of tuples, where each tuple contains all args for one call.
+    in_answers = answers
+    if 'world' in task:
+        in_answers = batch_data['direct_answers']
     task_answer_args = zip(
         predictions,
-        answers,
+        in_answers,
         [task] * num_samples,
         # [gpu_id] * num_samples,
         # answer_types,

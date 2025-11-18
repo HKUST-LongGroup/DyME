@@ -6,21 +6,21 @@ PROJECT_PATH="/apdcephfs_qy4/share_302593112/realzliu/code/DyME"
 #TRAIN_SCRIPT="main_rebuttal"
 #SCRIPT_ARGS="--mode grpo --config llavacot"
 
-#TRAIN_SCRIPT="main"
-#SCRIPT_ARGS="--config llavacot"
+TRAIN_SCRIPT="main"
+SCRIPT_ARGS="--config norm"
 
-TRAIN_SCRIPT="main_change"
-SCRIPT_ARGS="--config change"
+#TRAIN_SCRIPT="main_change"
+#SCRIPT_ARGS="--config change"
 # 节点列表 (根据您的hostfile整理)
 readonly WORKER_HOSTS=(
 #    "30.203.137.220"
-    "30.203.137.30"
-    "30.203.130.57"
+#    "30.203.137.30"
+#    "30.203.130.57"
     "30.203.136.188"
-    "30.203.129.144"
-    "30.203.133.39"
-    "30.203.129.237"
-    "30.203.132.189"
+#    "30.203.129.144"
+#    "30.203.133.39"
+#    "30.203.129.237"
+#    "30.203.132.189"
 )
 
 # ... (保留您的环境变量设置 ENV_SETUP_CMDS) ...

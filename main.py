@@ -73,7 +73,7 @@ def load_model_and_processor(model_config: Dict[str, Any]):
     return model, processor
 
 
-def prepare_datasets(task: str, dataset_config: Dict[str, Any]) -> (Dataset, Dataset):
+def prepare_datasets(task: str, dataset_config: Dict[str, Any], mode='rl') -> (Dataset, Dataset):
     """
     Prepares the training and evaluation datasets based on the specified task.
 
@@ -84,7 +84,7 @@ def prepare_datasets(task: str, dataset_config: Dict[str, Any]) -> (Dataset, Dat
     Returns:
         Tuple[Dataset, Dataset]: The training and evaluation datasets.
     """
-    data_func = define_task_data_func(task)
+    data_func = define_task_data_func(task, mode=mode)
 
     # Create training dataset
     train_data_list = data_func(json_path=dataset_config['train_dataset'])
@@ -95,9 +95,10 @@ def prepare_datasets(task: str, dataset_config: Dict[str, Any]) -> (Dataset, Dat
         eval_dataset = load_dataset(dataset_config['eval_dataset'])['test']
         # Note: You can uncomment the line below for quick testing/debugging.
         # eval_dataset = eval_dataset.select(range(1000, 1100))
+
     else:
         # Extend this section for other tasks if needed in the future.
-        raise NotImplementedError(f"Task '{task}' is not supported for evaluation in this script.")
+        eval_dataset = None
 
     return train_dataset, eval_dataset
 
@@ -113,8 +114,13 @@ def main():
         '--config', type=str, default='norm',
         help="config file to use: 'norm' or 'llavacot'..."
     )
+    parser.add_argument(
+        '--mode', type=str, default='rl',
+    )
+
     args = parser.parse_args()
     config_select = args.config
+    mode = args.mode
 
     if config_select == 'norm':
         from config import CONFIG
@@ -122,6 +128,8 @@ def main():
         from config_llavacot import CONFIG
     elif config_select == 'low':
         from config_low import CONFIG
+    elif config_select == 'aok':
+        from config_aok import CONFIG
 
     # 1. Load Configurations
     model_config = CONFIG['model']
@@ -139,7 +147,7 @@ def main():
     model, processor = load_model_and_processor(model_config)
 
     # 4. Prepare Datasets
-    train_dataset, eval_dataset = prepare_datasets(task, dataset_config)
+    train_dataset, eval_dataset = prepare_datasets(task, dataset_config, mode=mode)
 
     # 5. Initialize Reward Calculator
     # checker = RewardCalculator(rl_config, client_config.copy(), gpu_id=device_id)

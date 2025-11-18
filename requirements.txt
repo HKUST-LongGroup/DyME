@@ -13,3 +13,4 @@ flash-attn==2.7.4.post1
 scikit-image
 openai
 spacy
+autoawq==0.2.9

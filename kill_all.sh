@@ -7,18 +7,18 @@ set -e
 # 确保这个列表和你的 launch_all.sh 脚本完全一致
 readonly WORKER_HOSTS=(
 #    "30.203.137.220"
-    "30.203.137.30"
-    "30.203.130.57"
+#    "30.203.137.30"
+#    "30.203.130.57"
     "30.203.136.188"
-    "30.203.129.144"
-    "30.203.133.39"
-    "30.203.129.237"
-    "30.203.132.189"
+#    "30.203.129.144"
+#    "30.203.133.39"
+#    "30.203.129.237"
+#    "30.203.132.189"
 )
 # 您的登录用户名
 readonly REMOTE_USER="root"
 # 确保这个脚本名和你启动的脚本名完全一致
-readonly TRAIN_SCRIPT="main_change"
+readonly TRAIN_SCRIPT="main"
 
 # --- 脚本执行区 ---
 
@@ -26,6 +26,7 @@ readonly TRAIN_SCRIPT="main_change"
 echo "--- Killing local processes matching '${TRAIN_SCRIPT}' first ---"
 # 使用 pkill 并通过 `|| true` 忽略“找不到进程”的错误
 pkill -9 -f "${TRAIN_SCRIPT}" || true
+pkill -f python
 echo "Local check complete."
 echo
 
@@ -40,7 +41,7 @@ for HOST in "${WORKER_HOSTS[@]}"; do
         # 逻辑：精确查找 -> 报告 -> 杀死
         ssh -n "${REMOTE_USER}@${HOST}" "
             set -e # 远程脚本也应该在出错时停止
-
+            pkill -f python
             # 精确查找由 python 启动的、且包含 TRAIN_SCRIPT 名称的进程
             # 这是为了避免误杀其他同名进程（比如一个名为 'main_rebuttal' 的shell脚本）
             PIDS=\$(pgrep -f \"python.*${TRAIN_SCRIPT}\")

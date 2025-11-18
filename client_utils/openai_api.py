@@ -1,5 +1,7 @@
 # Import necessary libraries
 import time
+
+import httpx
 from openai import OpenAI
 from typing import Optional
 
@@ -24,9 +26,11 @@ class OpenAIClient:
         # The OpenAI client is initialized directly within the class constructor.
         # This improves encapsulation by making the class self-contained.
         # It takes the configuration object as a direct argument.
+        custom_http_client = httpx.Client(trust_env=False)
         self.client = OpenAI(
             api_key=config['api_key'],  # Required: your API key
             base_url=config['api_base'],  # Optional: only needed for third-party services
+            http_client=custom_http_client,
         )
         self.model_id = config['model_id']
         self.max_retries = max_retries
@@ -88,18 +92,19 @@ class OpenAIClient:
 # --- How to Use the Refactored Class ---
 if __name__ == '__main__':
     # 1. Define your configuration
-    # Replace with your actual credentials and model
-    client_config = ClientConfig(
-        # 对于本地服务，API Key 的内容不重要，但参数通常需要存在
-        api_key="EMPTY",
-        # 修正了IP、端口和路径的顺序
-        base_url="http://127.0.0.1:23333/v1",
-        # 确保这个ID与服务端 lmdeploy 启动的模型ID完全一致
-        model_id="Qwen/Qwen2.5-14B-Instruct-AWQ"
-    )
+    # Replace with your actual credentials and mode
 
+    CLIENT_CONFIG = {
+        "client_type": "openai",  # 客户端主机地址
+        "api_key": "none",  # 客户端主机
+        "api_base": "http://127.0.0.1:23333/v1",  # 客户端，如果是本地服务需要预留端口
+        "timeout": 60,  # 请求超时时间
+        "model_id": "Qwen/Qwen2.5-14B-Instruct-AWQ",  # 使用的模型ID
+        "init_port": 23333,  # 或者none代表在线服务
+        "num_server": 8
+    }
     # 2. Instantiate the client
-    my_client = OpenAIClient(config=client_config)
+    my_client = OpenAIClient(config=CLIENT_CONFIG)
 
     # 3. Define your prompts
     user_message = "What is the capital of France?"

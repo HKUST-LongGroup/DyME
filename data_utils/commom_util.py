@@ -2,6 +2,7 @@ import os.path
 
 from PIL import Image as PILImage
 
+from data_utils.aokvqa.data_collector import prepare_world_rl_data, prepare_world_sft_data, prepare_world_dyme_data
 from data_utils.chart.data_collector import prepare_chart_rl_data, prepare_chart_sft_data
 from data_utils.lm_math.data_collector import prepare_math_lm_rl_data
 
@@ -16,6 +17,7 @@ Output: [
     {"object": "cat", "attributes": ["small", "black"], "action": "sitting"},
     {"object": "table", "attributes": ["wooden"]},
     {"environment": "sunlight", "attributes": ["bright"]}
+    {"description": "The scene is illuminated by bright sunlight..."}
 ]
 
 <C>: "Year | Favorable | Unfavorable \n 2011 | 0 | 3.1 \n 2012 | 56 | 38.0 \n 2013 | 0 | 0.0 \n 2014 | 51 | 48.0 \n 2015 | 0 | 53.0"
@@ -32,6 +34,7 @@ Output: [
     {"object": "castle", "attributes": ["old"], "position": "stands"},
     {"object": "hill", "attributes": ["rocky"]},
     {"environment": "mist"}
+    {"description": "The castle is situated on a rocky hill enveloped in mist..."}
 ]
 
 Now, following the examples above, please extract the visual element from the sentence without providing any explanation or comments.
@@ -145,5 +148,11 @@ def define_task_data_func(task, mode='rl'):
         return None
     elif 'math_lm' in task:
         return prepare_math_lm_rl_data
+    elif 'world' in task:
+        if mode == 'rl':
+            return prepare_world_rl_data
+        elif mode == 'sft':
+            return prepare_world_sft_data
+        return prepare_world_dyme_data
     else:
         return None

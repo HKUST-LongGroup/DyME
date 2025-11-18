@@ -7,9 +7,9 @@ Given
 
 Goal:
 Assess whether <R> correctly and reasonably uses visible data in <IC> to justify that the correct answer to <Q> is <A>. Rate the quality as low / medium / high according to:
-(a) low: Does not use data from <IC> at all, or the language is not fluent/natural, or it fails to indicate the answer to <Q> is <A>.
+(a) low: Does not use data from <IC> at all, or the language is not fluent/natural, or it fails to indicate the answer to <Q> is <A>, or the structure is not good.
 (b) medium: Uses data from <IC> and is written fluently, but the reasoning is overly brief or insufficiently clear.
-(c) high: Uses data from <IC> and is written fluently; the reasoning progresses step by step with depth, each step is correct and reasonable; the data from <IC> appears exactly where it should; overall, the reasoning text provides very strong support that the answer to <Q> is <A>.
+(c) high: Uses data from <IC> and is written fluently; Has a very strong CoT structure (e.g. clear and logical steps); the reasoning progresses step by step with depth, each step is correct and reasonable; the data from <IC> appears exactly where it should; overall, the reasoning text provides very strong support that the answer to <Q> is <A>.
 
 Example:
 <IC>: [
@@ -75,4 +75,40 @@ Now, according to the requirements and the examples above, convert my input into
 <A>: %s
 <T>: %s
 <Output>:
+"""
+
+prompt_template = """Analyze the preceding text (which is a Chain of Thought, or "CoT").
+
+**Your Task:**
+1.  **Evaluate Structure and Logic:** First, determine if the CoT is **well-structured** and **logical**. A "well-structured" CoT contains clear, distinct, and labeled reasoning steps (e.g., "Goal:", "Observation:", "Reasoning:", "Conclusion:").
+2.  **Extract Template:** If (and only if) the CoT is **well-structured**, extract a **generic reasoning template** from it. In this template, use brackets `[ ]` to describe the general purpose of each step (as shown in Example 1).
+3.  **Output None:** If the CoT is **unstructured** (e.g., it reads like a single conversational paragraph), lacks clear steps, or is logically unsound, you must output **None** (as shown in Example 2).
+
+---
+
+**Example 1: [Well-Structured CoT]**
+
+**Input:**
+"Goal: Find the lowest value of the red graph.\nObservation: The data for the 'Rep/Lean Rep' category across the years are: 2018: 72, 2019: 70, and 2020: 77.\nReasoning: Comparing the values, the minimum value is 70.\nConclusion: The lowest value of the red graph is 70."
+
+**Output:**
+Goal: [State the user's objective, e.g., Find the year with the highest sales]
+Observation: [List key data points from the chart, e.g., 2020: 150, 2021: 200, 2022: 180]
+Reasoning: [State the logical step, e.g., Compare the values. 200 is the maximum.]
+Conclusion: [Draw the conclusion, e.g., The year with the highest sales was 2021.]
+
+---
+
+**Example 2: [Poorly-Structured / Conversational CoT]**
+
+**Input:**
+I'm trying to figure out the year when the unfavorable view reaches its highest point. Looking at the data, I see that the values for each year are pretty low until 2016, where it jumps to 55. But the peak doesn't happen until 2017, when the value spikes to 64. So, it seems like the unfavorable view really hits its maximum in 2017.
+
+**Output:**
+None
+
+Now, according to the requirements and the examples above, give me the result directly without any explanation or description.
+**Input:**
+%s
+**Output:**
 """

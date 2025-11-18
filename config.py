@@ -3,8 +3,8 @@ import torch
 
 # ====== Model Configuration ======
 MODEL_CONFIG = {
-    "pretrained_model_path": "/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart/checkpoint-400",  # two-stage grpo
-    # "pretrained_model_path": "llava-hf/llava-onevision-qwen2-0.5b-ov-hf",  # two-stage grpo
+    # "pretrained_model_path": "/apdcephfs_nj4/share_300377003/realzliu/sft-llavaov-chart/checkpoint-400",  # two-stage grpo
+    "pretrained_model_path": "llava-hf/llava-onevision-qwen2-0.5b-ov-hf",  # two-stage grpo
     "use_flash_attention_2": True,
     "torch_dtype": "bfloat16",
 }
@@ -16,11 +16,11 @@ TRAINING_CONFIG = {
     "num_client": 8,  # 并发客户端数量，通常与 GPU 数量相同
     # RL阶段的参数 (根据原脚本的rl_args)
     "dyme_args": {
-        "output_dir": os.path.join('output-dist', "test"),
+        "output_dir": '/apdcephfs_nj4/share_300377003/realzliu/dyme-k-8',
         "logging_steps": 1,
-        "num_generations": 4,  # RL 阶段可以生成多个响应进行比较
+        "num_generations": 8,  # RL 阶段可以生成多个响应进行比较
         "max_completion_length": 300,
-        "per_device_train_batch_size": 1,
+        "per_device_train_batch_size": 2,
         "gradient_accumulation_steps": 16,
         "num_train_epochs": 10,
         "learning_rate": 8e-5,

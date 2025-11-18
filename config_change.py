@@ -18,7 +18,7 @@ TRAINING_CONFIG = {
         "output_dir": '/apdcephfs_nj4/share_300377003/realzliu/dyme-llavaov-chart-change3',
         "logging_steps": 1,
         "num_generations": 4,  # norm 4; 5 for sft hybrid
-        "max_completion_length": 300,
+        "max_completion_length": 200,
         "per_device_train_batch_size": 1,
         "gradient_accumulation_steps": 16, # norm 16; 20 for sft hybrid
         "num_train_epochs": 10,

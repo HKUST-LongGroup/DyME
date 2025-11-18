@@ -2,11 +2,119 @@ import re
 from typing import Optional
 
 from client_utils.openai_api import OpenAIClient
+from data_utils.aokvqa.evaluator import eval_aokvqa_direct
 from data_utils.chart.evaluator import eval_one_chart
 from data_utils.commom_util import prompt_ic
-from data_utils.chart.prompts import prompt_thinking_reward
+
 import math
+import os
+from filelock import FileLock
+TEMPLATE_FILE = "best_template.txt"
+LOCK_FILE = "best_template.txt.lock"
 # ----------------------------------------------------
+
+def _get_llm_comparison(client, system_prompt, current_template, new_template) -> bool:
+    """
+    调用 LLM 来判断新模板是否“更好”。
+    """
+    # 针对 LLM 评估的专用提示
+    comparison_prompt = f"""You are an expert in AI prompt engineering. Your task is to compare two reasoning templates. You must decide if the 'New Template' should replace the 'Current Template' as the single 'best' template.
+
+My goal is to keep only the *best*, *clearest*, and *most general* template.
+
+---
+**Current Template:** {current_template}
+---
+**New Template:** {new_template}
+---
+
+**Instructions:**
+1.  **Check for Novelty:** Is the 'New Template' *semantically different*?
+2.  **Check for Quality:** If different, is the 'New Template' *objectively better* or *more general*?
+3.  **Decision:** Should the 'New Template' **replace** the 'Current Template'?
+
+Respond with **only** the word "YES" or "NO".
+
+**Decision:**"""
+
+    try:
+        response = client.get_completion(comparison_prompt, system_prompt=system_prompt, max_tokens=30)
+        decision = response.strip().upper()
+        # print(f"[Process {os.getpid()}] LLM comparison result: {decision}") # 调试信息
+        return decision == "YES"
+    except Exception as e:
+        # print(f"[Process {os.getpid()}] LLM comparison failed: {e}")
+        return False # 如果 LLM 失败，则不替换
+
+
+def _read_current_template(lock: FileLock) -> str:
+    """在锁保护下安全地读取文件内容（操作很快）"""
+    try:
+        with lock.acquire(timeout=5):
+            if not os.path.exists(TEMPLATE_FILE):
+                return ""
+            with open(TEMPLATE_FILE, "r", encoding="utf-8") as f:
+                return f.read().strip()
+    except Exception as e:
+        print(f"[Process {os.getpid()}] Failed to read template: {e}")
+        return ""  # 出错时返回空字符串
+
+
+def _optimistic_write_template(lock: FileLock, new_template: str, original_template: str) -> bool:
+    """
+    执行“比较并交换”（Compare-and-Swap）的写入操作。
+    只有当文件内容仍等于 original_template 时，才写入 new_template。
+    """
+    try:
+        with lock.acquire(timeout=10):
+            # 步骤 4：再次读取
+            current_template_on_disk = ""
+            if os.path.exists(TEMPLATE_FILE):
+                with open(TEMPLATE_FILE, "r", encoding="utf-8") as f:
+                    current_template_on_disk = f.read().strip()
+
+            # 步骤 4.1：检查冲突
+            # 比较磁盘上的模板和我们用于 LLM 比较的“原始”模板
+            if current_template_on_disk != original_template:
+                # 情况 2（冲突）：另一个进程已经修改了文件
+                print(f"[Process {os.getpid()}] Write aborted. Template was modified by another process.")
+                return False
+
+            # 情况 1（成功）：文件未变，安全写入
+            with open(TEMPLATE_FILE, "w", encoding="utf-8") as f:
+                f.write(new_template)
+            print(f"[Process {os.getpid()}] New template successfully written.")
+            return True
+
+    except Exception as e:
+        print(f"[Process {os.getpid()}] Failed to write template: {e}")
+        return False
+
+def update_best_template_if_different(client, system_prompt, new_template: str):
+    """
+    协调整个“乐观锁”流程：
+    1.（无锁）读取
+    2.（无锁）慢速 LLM 比较
+    3.（有锁）比较并交换（CAS）写入
+    """
+    lock = FileLock(LOCK_FILE)
+    clean_new_template = new_template.strip()
+    if not clean_new_template:
+        return
+
+    # 步骤 1：（有锁，但极快）读取当前模板
+    original_template = _read_current_template(lock)
+
+    # 如果模板完全一样，跳过昂贵的 LLM 调用
+    if original_template == clean_new_template:
+        return
+
+    # 步骤 2：（无锁，慢速）执行 LLM 比较
+    is_better = _get_llm_comparison(client, system_prompt, original_template, clean_new_template)
+
+    # 步骤 3：（有锁，快速）尝试“乐观写入”
+    if is_better:
+        _optimistic_write_template(lock, clean_new_template, original_template)
 
 class RewardCalculator:
     """
@@ -47,6 +155,9 @@ class RewardCalculator:
             elif 'math_lm' in task:
                 reference_answer = reference_answer.lower().replace('answer:', '').strip()
                 reward = eval_one_chart(response, reference_answer, 0, answer_flag=self.answer_flag)
+                return float(reward)
+            elif 'world' in task:
+                reward = eval_aokvqa_direct(response, reference_answer)
                 return float(reward)
 
             else:
@@ -103,6 +214,8 @@ class RewardCalculator:
             system_prompt = 'You are a seasoned professional in the field of mathematics, demonstrating exceptional expertise and insight into complex mathematical problems. Your output should be only judgement, without any additional text or explanation.'
         elif 'chart' in task:
             system_prompt = 'You are a seasoned professional in the field of chart analysis, demonstrating exceptional expertise and insight into complex chart data. Your output should be only judgement, without any additional text or explanation.'
+        elif 'world' in task:
+            system_prompt = 'You are a seasoned professional in the field of world knowledge and image analysis, demonstrating exceptional expertise and insight into complex real-world scenarios. Your output should be only judgement, without any additional text or explanation.'
         else:
             Exception('Unknown expert task')
 
@@ -110,11 +223,21 @@ class RewardCalculator:
             thinking = response.lower().split(self.answer_flag)[0].strip()
             in_context_example = self.client.get_completion(prompt_ic % hint, system_prompt=system_prompt, max_tokens=5000)
 
-            if 'chart' in task:
+            if 'chart' in task or 'world' in task:
+                if 'chart' in task:
+                    from data_utils.chart.prompts import prompt_thinking_reward, prompt_template
+                else:
+                    from data_utils.aokvqa.prompts import prompt_thinking_reward, prompt_template
                 # Construct the final prompt for the evaluator model.
                 evaluation_prompt = prompt_thinking_reward % (in_context_example, question, answer, thinking)
                 output = self.client.get_completion(evaluation_prompt, system_prompt=system_prompt, max_tokens=10)
                 reward = get_score(output)
+
+                if reward == 1:
+                    template_prompt = prompt_template % thinking
+                    ext_template = self.client.get_completion(template_prompt, system_prompt=system_prompt, max_tokens=512)
+                    if "none" not in ext_template.strip().lower():
+                        update_best_template_if_different(self.client, system_prompt, ext_template)
                 return reward
             else:
                 raise ValueError(f"Task '{task}' not supported for thinking reward.")
@@ -210,7 +333,9 @@ class RewardCalculatorLocal:
                 reference_answer = reference_answer.lower().replace('answer:', '').strip()
                 reward = eval_one_chart(response, reference_answer, 0, answer_flag=self.answer_flag)
                 return float(reward)
-
+            elif 'world' in task:
+                reward = eval_aokvqa_direct(response, reference_answer)
+                return float(reward)
             else:
                 raise ValueError(f"Task '{task}' not supported for answer reward.")
         except Exception as e:
