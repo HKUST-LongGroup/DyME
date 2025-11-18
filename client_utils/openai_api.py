@@ -94,12 +94,12 @@ if __name__ == '__main__':
     # Replace with your actual credentials and mode
 
     CLIENT_CONFIG = {
-        "client_type": "openai",  # 客户端主机地址
-        "api_key": "none",  # 客户端主机
-        "api_base": "http://127.0.0.1:23333/v1",  # 客户端，如果是本地服务需要预留端口
-        "timeout": 60,  # 请求超时时间
-        "model_id": "Qwen/Qwen2.5-14B-Instruct-AWQ",  # 使用的模型ID
-        "init_port": 23333,  # 或者none代表在线服务
+        "client_type": "openai",  
+        "api_key": "none",  
+        "api_base": "http://127.0.0.1:23333/v1",  
+        "timeout": 60,  
+        "model_id": "Qwen/Qwen2.5-14B-Instruct-AWQ",  
+        "init_port": 23333, 
         "num_server": 8
     }
     # 2. Instantiate the client
