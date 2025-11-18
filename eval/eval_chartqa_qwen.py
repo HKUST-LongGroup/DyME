@@ -116,10 +116,10 @@ def run_kh_batch(batch_data_list):  # Renamed from run_kh, takes a batch
 
 # --- Main Evaluation Logic ---
 task = 'chart'
-# dt_record_local 在 if task == 'chart' 块内初始化
+# dt_record_local is initialized inside the if task == 'chart' block
 
 if task == 'chart':
-    dt_record_local = {}  # 为当前进程存储结果
+    dt_record_local = {}  # Store results for the current process
     if accelerator.is_main_process:
         print("Loading ChartQA dataset...")
     try:
@@ -130,19 +130,19 @@ if task == 'chart':
             print("Attempting to load with specific revision if applicable, or check path/connection.")
         raise
 
-    # full_dataset = full_dataset.select(range(80)) # 取消注释以进行快速测试
+    # full_dataset = full_dataset.select(range(80)) # Uncomment for quick tests
 
     eval_datasets_all_prepared = []
 
     for d_item in tqdm(full_dataset, desc="Preparing dataset", disable=not accelerator.is_main_process):
         image_path = d_item['image']
         raw_question = d_item['query']
-        answer_list = d_item.get('label')  # 使用 .get() 以防 'label' 字段不存在
-        if not answer_list:  # 如果 'label' 不存在或为空列表
+        answer_list = d_item.get('label')  # Use .get() in case 'label' field does not exist
+        if not answer_list:  # If 'label' is missing or an empty list
             if accelerator.is_main_process:
                 tqdm.write(f"Warning: Item missing 'label' or 'label' is empty. Query: {raw_question[:50]}...")
-            # 根据您的需求决定如何处理：跳过此样本或使用默认答案
-            continue  # 跳过此样本
+            # Decide how to handle this according to your needs: skip this sample or use a default answer
+            continue  # Skip this sample
         answer = answer_list[0]
 
         model_input_text_for_template = raw_question
@@ -168,11 +168,11 @@ if task == 'chart':
         local_end_index = local_start_index + num_local_items
         eval_datasets_local = eval_datasets_all_prepared[local_start_index:local_end_index]
 
-        BATCH_SIZE = 32  # 根据您的 VRAM 调整
-        REPORT_INTERVAL_BATCHES = 1  # 每处理 N 个本地批次后报告一次（主进程将打印全局统计）
+        BATCH_SIZE = 32  # Adjust according to your VRAM
+        REPORT_INTERVAL_BATCHES = 1  # Report after every N local batches (main process prints global statistics)
 
         pbar = None
-        if accelerator.is_main_process and len(eval_datasets_local) > 0:  # 仅当有数据时创建 pbar
+        if accelerator.is_main_process and len(eval_datasets_local) > 0:  # Create pbar only when there is data
             pbar = tqdm(total=len(eval_datasets_local), desc=f"Eval Proc {process_index}", dynamic_ncols=True)
 
         dt_record_local['res'] = []
@@ -194,12 +194,12 @@ if task == 'chart':
 
                 _, parsed_pred_answer = split_initial_context(full_pred_text)
                 if not parsed_pred_answer.strip():
-                    parsed_pred_answer = full_pred_text  # 如果解析答案为空，则回退到完整预测
+                    parsed_pred_answer = full_pred_text  # If parsed answer is empty, fall back to the full prediction
 
-                score = eval_one_chart(parsed_pred_answer, ground_truth_answer)  # nlp 对象是全局的
+                score = eval_one_chart(parsed_pred_answer, ground_truth_answer)  # nlp object is global
                 dt_record_local['res'].append(score)
 
-                # (可选) 主进程打印少量样本的预测详情
+                # (Optional) Main process prints prediction details for a few samples
                 if accelerator.is_main_process:
                     print(full_pred_text, "######", ground_truth_answer, "######", score)
 
@@ -207,23 +207,25 @@ if task == 'chart':
                 pbar.update(len(current_batch_list))
 
             is_last_local_batch = (batch_idx_local == num_local_batches - 1)
-            # 每隔 REPORT_INTERVAL_BATCHES 个本地批次，或在当前进程的最后一个本地批次时，执行同步和报告
+            # Every REPORT_INTERVAL_BATCHES local batches, or on the last local batch of this process,
+            # perform synchronization and reporting
             should_sync_and_report = ((batch_idx_local + 1) % REPORT_INTERVAL_BATCHES == 0) or is_last_local_batch
 
-            # 确保即使 REPORT_INTERVAL_BATCHES 为1，也不会在没有数据时报告 (例如 len(eval_datasets_local) == 0)
-            if len(eval_datasets_local) == 0:  # 如果当前进程没有数据，则不参与报告逻辑
-                should_sync_and_report = False  # 除非它是最后一个批次（此时 num_local_batches 为0，循环不会运行）
-                # 但如果 num_local_batches > 0, 此检查确保仅在有数据时报告
+            # Ensure that even if REPORT_INTERVAL_BATCHES is 1, we do not report when there is no data
+            # (e.g., len(eval_datasets_local) == 0)
+            if len(eval_datasets_local) == 0:  # If the current process has no data, skip reporting logic
+                should_sync_and_report = False  # Unless it is the last batch (num_local_batches == 0, loop does not run)
+                # If num_local_batches > 0, this check ensures we only report when data exists
 
-            if num_local_batches == 0 and is_last_local_batch:  # 特殊情况：进程无数据，但仍需参与最终同步
+            if num_local_batches == 0 and is_last_local_batch:  # Special case: process has no data but must join final sync
                 should_sync_and_report = True
 
             if should_sync_and_report:
-                accelerator.wait_for_everyone()  # 等待所有进程到达同步点
+                accelerator.wait_for_everyone()  # Wait for all processes to reach the sync point
 
                 gathered_all_processes_data = [None] * num_processes
-                # 每个进程发送其*当前累积*的 dt_record_local
-                # 如果某进程没有数据，dt_record_local['res'] 是空列表，这是正常的
+                # Each process sends its *currently accumulated* dt_record_local
+                # If a process has no data, dt_record_local['res'] is an empty list, which is fine
                 all_gather_object(gathered_all_processes_data, dt_record_local)
 
                 if accelerator.is_main_process:
@@ -235,14 +237,15 @@ if task == 'chart':
                     total_samples_processed_globally = len(current_global_scores_list)
 
                     report_title = "--- Intermediate Report ---"
-                    # 检查这是否是所有进程都已完成的最终报告点
-                    # 一个简单的启发式方法是：如果这是主进程的最后一个批次，并且所有收集到的样本数等于总样本数
+                    # Check if this is the final reporting point where all processes have finished
+                    # A simple heuristic: if this is the last local batch on the main process
+                    # and the total number of collected samples equals the total number of items
                     if is_last_local_batch and total_samples_processed_globally == total_items:
                         report_title = "--- Final Report ---"
-                    elif is_last_local_batch:  # 主进程的最后一个批次，但可能并非所有样本都已处理（如果其他进程较慢/数据更多）
+                    elif is_last_local_batch:  # Last batch on main process but possibly not all samples are done yet
                         report_title = f"--- Report (Main Proc Last Batch, {batch_idx_local + 1}/{num_local_batches}) ---"
 
-                    tqdm.write(f"\n{report_title}")  # 使用 tqdm.write 避免与进度条冲突
+                    tqdm.write(f"\n{report_title}")  # Use tqdm.write to avoid interfering with the progress bar
                     if current_global_scores_list:
                         mean_acc_global = np.array(current_global_scores_list).mean()
                         if accelerator.is_main_process:
@@ -256,12 +259,12 @@ if task == 'chart':
                             print(
                                 f"No scores to report globally yet (Total processed: {total_samples_processed_globally}).")
 
-                accelerator.wait_for_everyone()  # 报告后再次同步，以防某些进程快速进入下一计算
+                accelerator.wait_for_everyone()  # Sync again after reporting to prevent some processes from running ahead
 
         if pbar:
             pbar.close()
 
-        # 最终的指标已在循环的最后一次报告中打印（当 is_last_local_batch 为 True 时）
+        # Final metrics have already been printed in the last report (when is_last_local_batch is True)
         if accelerator.is_main_process and len(eval_datasets_local) == 0 and total_items > 0:
             print(
                 f"Main process had no data, but other processes might have. Final global metrics are printed by the last reporting sync.")

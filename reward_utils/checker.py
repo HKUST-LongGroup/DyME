@@ -13,6 +13,7 @@ TEMPLATE_FILE = "best_template.txt"
 LOCK_FILE = "best_template.txt.lock"
 # ----------------------------------------------------
 
+
 def _get_llm_comparison(client, system_prompt, current_template, new_template) -> bool:
     comparison_prompt = f"""You are an expert in AI prompt engineering. Your task is to compare two reasoning templates. You must decide if the 'New Template' should replace the 'Current Template' as the single 'best' template.
 
@@ -38,11 +39,11 @@ Respond with **only** the word "YES" or "NO".
         decision = response.strip().upper()
         return decision == "YES"
     except Exception as e:
-        return False 
+        return False
 
 
 def _read_current_template(lock: FileLock) -> str:
-    """在锁保护下安全地读取文件内容（操作很快）"""
+    """Safely read the file contents under lock protection (this operation is very fast)."""
     try:
         with lock.acquire(timeout=5):
             if not os.path.exists(TEMPLATE_FILE):
@@ -51,30 +52,30 @@ def _read_current_template(lock: FileLock) -> str:
                 return f.read().strip()
     except Exception as e:
         print(f"[Process {os.getpid()}] Failed to read template: {e}")
-        return ""  # 出错时返回空字符串
+        return ""  # Return an empty string on error
 
 
 def _optimistic_write_template(lock: FileLock, new_template: str, original_template: str) -> bool:
     """
-    执行“比较并交换”（Compare-and-Swap）的写入操作。
-    只有当文件内容仍等于 original_template 时，才写入 new_template。
+    Perform a Compare-and-Swap (CAS) write operation.
+    Only write new_template if the file contents are still equal to original_template.
     """
     try:
         with lock.acquire(timeout=10):
-            # 步骤 4：再次读取
+            # Step 4: Read again
             current_template_on_disk = ""
             if os.path.exists(TEMPLATE_FILE):
                 with open(TEMPLATE_FILE, "r", encoding="utf-8") as f:
                     current_template_on_disk = f.read().strip()
 
-            # 步骤 4.1：检查冲突
-            # 比较磁盘上的模板和我们用于 LLM 比较的“原始”模板
+            # Step 4.1: Check for conflicts
+            # Compare the template on disk with the "original" template used for the LLM comparison
             if current_template_on_disk != original_template:
-                # 情况 2（冲突）：另一个进程已经修改了文件
+                # Case 2 (conflict): another process already modified the file
                 print(f"[Process {os.getpid()}] Write aborted. Template was modified by another process.")
                 return False
 
-            # 情况 1（成功）：文件未变，安全写入
+            # Case 1 (success): file unchanged, safe to write
             with open(TEMPLATE_FILE, "w", encoding="utf-8") as f:
                 f.write(new_template)
             print(f"[Process {os.getpid()}] New template successfully written.")
@@ -84,31 +85,33 @@ def _optimistic_write_template(lock: FileLock, new_template: str, original_templ
         print(f"[Process {os.getpid()}] Failed to write template: {e}")
         return False
 
+
 def update_best_template_if_different(client, system_prompt, new_template: str):
     """
-    协调整个“乐观锁”流程：
-    1.（无锁）读取
-    2.（无锁）慢速 LLM 比较
-    3.（有锁）比较并交换（CAS）写入
+    Coordinate the full optimistic-lock workflow:
+    1. (Unlocked) Read
+    2. (Unlocked) Slow LLM comparison
+    3. (Locked) CAS write
     """
     lock = FileLock(LOCK_FILE)
     clean_new_template = new_template.strip()
     if not clean_new_template:
         return
 
-    # 步骤 1：（有锁，但极快）读取当前模板
+    # Step 1: (locked but extremely fast) read the current template
     original_template = _read_current_template(lock)
 
-    # 如果模板完全一样，跳过昂贵的 LLM 调用
+    # If templates are identical, skip expensive LLM call
     if original_template == clean_new_template:
         return
 
-    # 步骤 2：（无锁，慢速）执行 LLM 比较
+    # Step 2: (unlocked, slow) run LLM comparison
     is_better = _get_llm_comparison(client, system_prompt, original_template, clean_new_template)
 
-    # 步骤 3：（有锁，快速）尝试“乐观写入”
+    # Step 3: (locked, fast) attempt optimistic write
     if is_better:
         _optimistic_write_template(lock, clean_new_template, original_template)
+
 
 class RewardCalculator:
     """
@@ -198,8 +201,8 @@ class RewardCalculator:
             elif "high" in level_string:
                 return 1
             else:
-                # 处理未知输入
-                return 0  # 或者可以返回 -1, 或者抛出一个错误
+                # Handle unknown input
+                return 0  # or return -1, or raise an error
 
         system_prompt = None
         if 'medical' in task:
@@ -247,12 +250,12 @@ import re
 
 class RewardCalculatorLocal:
     def __init__(self, RL_CONFIG, CLIENT_CONFIG, gpu_id=0):
-        # ... 其他初始化代码 ...
+        # ... other initialization code ...
         self.answer_flag = RL_CONFIG["answer_flag"].lower()
         self.count_pattern = re.compile(f'(?i){re.escape(self.answer_flag)}')
 
-        # 加载 spaCy 的小型英文模型
-        # 我们可以在初始化时加载一次，避免重复加载
+        # Load spaCy's small English model
+        # We load once at initialization to avoid repeated loading
         try:
             self.nlp = spacy.load("en_core_web_sm")
         except OSError:
@@ -261,21 +264,21 @@ class RewardCalculatorLocal:
             download("en_core_web_sm")
             self.nlp = spacy.load("en_core_web_sm")
 
-        # 定义我们认为“重要”的词性标签
-        # NOUN (名词), PROPN (专有名词), VERB (动词), ADJ (形容词), NUM (数字)
-        # 您可以根据需求调整这个列表
+        # Define the POS tags we consider "important":
+        # NOUN, PROPN, VERB, ADJ, NUM
+        # You can adjust this list as needed
         self.important_pos_tags = {'NOUN', 'PROPN', 'VERB', 'ADJ', 'NUM'}
 
     def _preprocess_text_pos(self, text: str) -> set[str]:
         """
-        使用词性标注来提取关键词
+        Use part-of-speech tagging to extract keywords.
         """
         doc = self.nlp(text.lower())
         keywords = set()
         for token in doc:
-            # 只保留重要词性的词，并且确保它不是停用词或标点符号
+            # Keep only tokens with important POS tags, and ensure they are not stopwords or punctuation
             if token.pos_ in self.important_pos_tags and not token.is_stop and not token.is_punct:
-                # 使用 .lemma_ 来获取词的原形，例如 'sales' -> 'sale'
+                # Use lemma_ to get the base form (e.g., 'sales' -> 'sale')
                 keywords.add(token.lemma_)
         return keywords
 
@@ -285,22 +288,22 @@ class RewardCalculatorLocal:
             if not thinking_part:
                 return 0.0
 
-            # 使用基于词性的新方法
+            # Use the new POS-based method
             thinking_tokens = self._preprocess_text_pos(thinking_part)
             reference_tokens = self._preprocess_text_pos(hint)
 
-            # 计算交集
+            # Compute intersection
             common_tokens = thinking_tokens.intersection(reference_tokens)
 
-            # 计算精确率 (Precision)
-            # 在模型生成的所有词中，有多少是正确的（在hint中出现）
+            # Precision:
+            # Of all tokens generated by the model, how many are correct (appear in hint)?
             precision = len(common_tokens) / (len(thinking_tokens) + 1e-6)
 
-            # 计算召回率 (Recall)
-            # 在所有正确的词（hint）中，有多少被模型找到了
+            # Recall:
+            # Of all correct tokens in the hint, how many were found by the model?
             recall = len(common_tokens) / (len(reference_tokens) + 1e-6)
 
-            # 计算 F1-Score
+            # F1-score
             if precision + recall == 0:
                 return 0.0
 
@@ -309,7 +312,7 @@ class RewardCalculatorLocal:
             return f1_score
 
         except Exception as e:
-            print(f"在本地计算思考奖励时发生错误: {e}")
+            print(f"An error occurred during local thinking reward calculation: {e}")
             return 0.0
 
     def get_answer_reward(self, response: str, reference_answer: str, task: str, gpu_id=None, answer_type=None) -> float:
