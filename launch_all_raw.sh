@@ -8,13 +8,13 @@ SCRIPT_ARGS="--mode grpo"
 
 # 节点列表 (根据您的hostfile整理)
 WORKER_HOSTS=(
-    "30.203.137.220"
-    "30.203.130.57"
-    "30.203.133.39"
-    "30.203.136.188"
-    "30.203.129.144"
-    "30.203.128.24"
-    "30.203.129.237"
+    "XX,XX,XX,XX "
+    "XX,XX,XX,XX "
+    "XX,XX,XX,XX "
+    "XX,XX,XX,XX "
+    "XX,XX,XX,XX "
+    "XX,XX,XX,XX "
+    "XX,XX,XX,XX "
 )
 
 # ... (保留您的环境变量设置 ENV_SETUP_CMDS) ...
@@ -36,8 +36,8 @@ export NCCL_NET_GDR_LEVEL=2;
 export NCCL_IB_QPS_PER_CONNECTION=4;
 export NCCL_IB_TC=160;
 export NCCL_PXN_DISABLE=1;
-export http_proxy='http://9.21.0.122:11113';
-export https_proxy='http://9.21.0.122:11113';
+export http_proxy='YOUR_PROXY';
+export https_proxy='YOUR_PROXY';
 "
 
 CONFIG_FILE="${PROJECT_PATH}/multi_node_config_raw.yaml"
@@ -77,10 +77,9 @@ LOCAL_PID=$! # 获取本地安装的进程ID
 for HOST in "${WORKER_HOSTS[@]}"; do
     echo "在节点 ${HOST} 上启动安装..."
     # 使用 & 将 ssh 命令放入后台执行
-    ssh ${REMOTE_USER}@${HOST} "pip install -r ${PROJECT_PATH}/requirements.txt;http_proxy='http://9.21.0.122:11113' https_proxy='http://9.21.0.122:11113' python -m spacy download en_core_web_sm" &
+    ssh ${REMOTE_USER}@${HOST} "pip install -r ${PROJECT_PATH}/requirements.txt;http_proxy='YOUR_PROXY' https_proxy='YOUR_PROXY' python -m spacy download en_core_web_sm" &
 done
 
-#;http_proxy='http://9.21.0.122:11113' https_proxy='http://9.21.0.122:11113' python -m spacy download en_core_web_sm
 
 # 3. 等待所有后台任务（包括本地和所有远程的）全部完成
 echo "等待所有安装任务完成..."

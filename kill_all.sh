@@ -6,13 +6,13 @@ set -e
 # --- 用户配置区 ---
 # 确保这个列表和你的 launch_all.sh 脚本完全一致
 readonly WORKER_HOSTS=(
-    "30.203.137.220"
-    "30.203.130.57"
-    "30.203.133.39"
-    "30.203.136.188"
-    "30.203.129.144"
-    "30.203.128.24"
-    "30.203.129.237"
+    "XX,XX,XX,XX "
+    "XX,XX,XX,XX "
+    "XX,XX,XX,XX "
+    "XX,XX,XX,XX "
+    "XX,XX,XX,XX "
+    "XX,XX,XX,XX "
+    "XX,XX,XX,XX "
 )
 # 您的登录用户名
 readonly REMOTE_USER="root"
